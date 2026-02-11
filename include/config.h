@@ -68,4 +68,11 @@
 #define MAX_IMAGE_SIZE 128
 #define MAX_GIF_NAME_LEN 32
 
+// Now Playing
+#define NP_DIR "/np"
+#define NP_FRAME_DELAY_MS 400
+
+// Upload
+#define UPLOAD_TIMEOUT_MS 30000
+
 #endif // CONFIG_H

@@ -16,7 +16,7 @@
 
 // App system
 App *apps[] = {&gifApp, &nowPlayingApp};
-const int APP_COUNT = sizeof(apps) / sizeof(apps[0]);
+extern const int APP_COUNT = sizeof(apps) / sizeof(apps[0]);
 int currentAppIndex = 0;
 
 // Overlay state (shared across apps)
@@ -62,6 +62,10 @@ void setup()
 
   webServer.setOnGifChange([]()
                            { gifApp.notifyGifChange(); });
+  webServer.setOnModeChange([](int index)
+                            {
+                              if (index >= 0 && index < APP_COUNT && index != currentAppIndex)
+                                switchApp(index); });
   webServer.begin();
 
   display.showIP(webServer.getLocalIP().c_str());
@@ -85,13 +89,26 @@ void loop()
   // Check tilt
   static unsigned long lastMpuCheck = 0;
   int tiltDir = 0;
+  int pitchDir = 0;
   if (millis() - lastMpuCheck >= 50)
   {
     lastMpuCheck = millis();
     tiltDir = mpu.checkTiltChange();
+    pitchDir = mpu.checkPitchChange();
   }
 
-  // Pass tilt to current app; if unhandled, could be used for app switching
+  // Forward/backward pitch → switch App
+  if (pitchDir != 0)
+  {
+    int newIdx = currentAppIndex + pitchDir;
+    if (newIdx >= APP_COUNT)
+      newIdx = 0;
+    if (newIdx < 0)
+      newIdx = APP_COUNT - 1;
+    switchApp(newIdx);
+  }
+
+  // Left/right tilt → pass to current app
   if (tiltDir != 0)
   {
     if (apps[currentAppIndex]->onTilt(tiltDir))
@@ -106,6 +123,9 @@ void loop()
   {
     overlayVisible = false;
   }
+
+  // Recover from stale uploads (e.g. companion crash mid-upload)
+  webServer.checkUploadTimeout();
 
   // Run current app
   apps[currentAppIndex]->loop();

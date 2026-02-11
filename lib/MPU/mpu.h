@@ -11,6 +11,13 @@ enum TiltState
     TILT_RIGHT
 };
 
+enum PitchState
+{
+    PITCH_NEUTRAL,
+    PITCH_FORWARD,
+    PITCH_BACKWARD
+};
+
 class MPU
 {
 public:
@@ -19,14 +26,18 @@ public:
     void begin();
     void calibrate(int samples = 300);
     int checkTiltChange();
+    int checkPitchChange();
 
 private:
     float _offAx, _offAy, _offAz;
     TiltState _lastTilt;
+    PitchState _lastPitch;
     unsigned long _lastSwitchMs;
+    unsigned long _lastPitchMs;
 
     void readAccel(float &ax, float &ay, float &az);
     float readRollDeg();
+    float readPitchDeg();
 };
 
 extern MPU mpu;

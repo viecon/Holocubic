@@ -18,6 +18,7 @@ public:
 
     void swapAndRender();
     uint16_t *getBackBuffer();
+    GFXcanvas16 *getBackCanvas();
     void clearBackBuffer();
 
     bool decodeBmpToCanvas(const char *filename);

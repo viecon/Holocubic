@@ -4,7 +4,8 @@
 MPU mpu;
 
 MPU::MPU()
-    : _offAx(0), _offAy(0), _offAz(0), _lastTilt(TILT_NEUTRAL), _lastSwitchMs(0)
+    : _offAx(0), _offAy(0), _offAz(0), _lastTilt(TILT_NEUTRAL), _lastPitch(PITCH_NEUTRAL),
+      _lastSwitchMs(0), _lastPitchMs(0)
 {
 }
 
@@ -70,6 +71,13 @@ float MPU::readRollDeg()
     return atan2f(ay, az) * 180.0f / PI;
 }
 
+float MPU::readPitchDeg()
+{
+    float ax, ay, az;
+    readAccel(ax, ay, az);
+    return atan2f(ax, az) * 180.0f / PI;
+}
+
 int MPU::checkTiltChange()
 {
     float roll = readRollDeg();
@@ -103,6 +111,40 @@ int MPU::checkTiltChange()
         {
             _lastTilt = TILT_NEUTRAL;
         }
+    }
+
+    return 0;
+}
+
+int MPU::checkPitchChange()
+{
+    float pitch = readPitchDeg();
+    unsigned long now = millis();
+
+    if (_lastPitch == PITCH_NEUTRAL)
+    {
+        if (pitch >= ENTER_TILT_DEG && (now - _lastPitchMs >= SWITCH_COOLDOWN_MS))
+        {
+            _lastPitchMs = now;
+            _lastPitch = PITCH_FORWARD;
+            return +1;
+        }
+        else if (pitch <= -ENTER_TILT_DEG && (now - _lastPitchMs >= SWITCH_COOLDOWN_MS))
+        {
+            _lastPitchMs = now;
+            _lastPitch = PITCH_BACKWARD;
+            return -1;
+        }
+    }
+    else if (_lastPitch == PITCH_FORWARD)
+    {
+        if (pitch < EXIT_TILT_DEG)
+            _lastPitch = PITCH_NEUTRAL;
+    }
+    else if (_lastPitch == PITCH_BACKWARD)
+    {
+        if (pitch > -EXIT_TILT_DEG)
+            _lastPitch = PITCH_NEUTRAL;
     }
 
     return 0;

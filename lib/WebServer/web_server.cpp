@@ -1,5 +1,7 @@
 #include "web_server.h"
 #include "gif_manager.h"
+#include "now_playing_app.h"
+#include "app.h"
 #include <WiFi.h>
 #include <SD.h>
 #include <AsyncJson.h>
@@ -9,7 +11,7 @@
 HoloWebServer webServer;
 
 HoloWebServer::HoloWebServer(uint16_t port)
-    : _server(port), _onGifChange(nullptr), _uploadFrameIndex(-1)
+    : _server(port), _onGifChange(nullptr), _onModeChange(nullptr), _uploadFrameIndex(-1)
 {
 }
 
@@ -23,6 +25,11 @@ void HoloWebServer::begin()
 void HoloWebServer::setOnGifChange(void (*callback)())
 {
     _onGifChange = callback;
+}
+
+void HoloWebServer::setOnModeChange(void (*callback)(int))
+{
+    _onModeChange = callback;
 }
 
 String HoloWebServer::getLocalIP()
@@ -54,9 +61,17 @@ void HoloWebServer::setupRoutes()
     _server.on(
         "^\\/api\\/gif\\/([^\\/]+)\\/frame\\/([0-9]+)$",
         HTTP_POST,
-        [](AsyncWebServerRequest *request)
+        [this](AsyncWebServerRequest *request)
         {
-            request->send(200, "application/json", "{\"success\":true}");
+            if (_uploadError)
+            {
+                _uploadError = false;
+                request->send(500, "application/json", "{\"error\":\"SD write failed\"}");
+            }
+            else
+            {
+                request->send(200, "application/json", "{\"success\":true}");
+            }
         },
         [this](AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final)
         {
@@ -70,9 +85,17 @@ void HoloWebServer::setupRoutes()
     _server.on(
         "^\\/api\\/gif\\/([^\\/]+)\\/original$",
         HTTP_POST,
-        [](AsyncWebServerRequest *request)
+        [this](AsyncWebServerRequest *request)
         {
-            request->send(200, "application/json", "{\"success\":true}");
+            if (_uploadError)
+            {
+                _uploadError = false;
+                request->send(500, "application/json", "{\"error\":\"SD write failed\"}");
+            }
+            else
+            {
+                request->send(200, "application/json", "{\"success\":true}");
+            }
         },
         [this](AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final)
         {
@@ -113,6 +136,52 @@ void HoloWebServer::setupRoutes()
             handleSaveWifi(request, json);
         });
     _server.addHandler(wifiHandler);
+
+    // Now Playing routes
+    _server.on("/api/now-playing", HTTP_GET, [this](AsyncWebServerRequest *request)
+               { handleGetNowPlaying(request); });
+
+    AsyncCallbackJsonWebHandler *npHandler = new AsyncCallbackJsonWebHandler(
+        "/api/now-playing",
+        [this](AsyncWebServerRequest *request, JsonVariant &json)
+        {
+            handleNowPlaying(request, json);
+        });
+    _server.addHandler(npHandler);
+
+    _server.on(
+        "^\\/api\\/np\\/frame\\/([0-9]+)$",
+        HTTP_POST,
+        [this](AsyncWebServerRequest *request)
+        {
+            if (_uploadError)
+            {
+                _uploadError = false;
+                request->send(500, "application/json", "{\"error\":\"SD write failed\"}");
+            }
+            else
+            {
+                request->send(200, "application/json", "{\"success\":true}");
+            }
+        },
+        [this](AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final)
+        {
+            handleUploadNpFrame(request, filename, index, data, len, final);
+        });
+
+    _server.on("/api/np/ready", HTTP_POST, [this](AsyncWebServerRequest *request)
+               { handleNpReady(request); });
+
+    _server.on("/api/mode", HTTP_GET, [this](AsyncWebServerRequest *request)
+               { handleGetMode(request); });
+
+    AsyncCallbackJsonWebHandler *modeHandler = new AsyncCallbackJsonWebHandler(
+        "/api/mode",
+        [this](AsyncWebServerRequest *request, JsonVariant &json)
+        {
+            handleSetMode(request, json);
+        });
+    _server.addHandler(modeHandler);
 
     _server.onNotFound([](AsyncWebServerRequest *request)
                        { request->send(404, "text/plain", "Not Found"); });
@@ -238,6 +307,8 @@ void HoloWebServer::handleUploadFrame(AsyncWebServerRequest *request, const Stri
     if (index == 0)
     {
         _isUploading = true;
+        _uploadError = false;
+        _lastUploadMs = millis();
 
         snprintf(_uploadPath, sizeof(_uploadPath), "%s/%s/%s.bmp",
                  GIFS_ROOT, request->pathArg(0).c_str(), request->pathArg(1).c_str());
@@ -246,25 +317,29 @@ void HoloWebServer::handleUploadFrame(AsyncWebServerRequest *request, const Stri
         if (!_uploadFile)
         {
             Serial.printf("[WebServer] Cannot create file: %s\n", _uploadPath);
+            _uploadError = true;
             return;
         }
+        _fileOpen = true;
     }
 
-    if (_uploadFile)
+    if (_fileOpen && !_uploadError)
     {
+        _lastUploadMs = millis();
         size_t written = _uploadFile.write(data, len);
         if (written != len)
         {
             Serial.printf("[WebServer] SD write error: wrote %u/%u\n", written, len);
-            _uploadFile.close();
+            _uploadError = true;
         }
     }
 
     if (final)
     {
-        if (_uploadFile)
+        if (_fileOpen)
         {
             _uploadFile.close();
+            _fileOpen = false;
         }
         _uploadFrameIndex = -1;
     }
@@ -272,17 +347,37 @@ void HoloWebServer::handleUploadFrame(AsyncWebServerRequest *request, const Stri
 
 void HoloWebServer::abortUpload()
 {
-    if (_uploadFile)
+    if (_fileOpen)
     {
         _uploadFile.close();
+        _fileOpen = false;
     }
-    if (_uploadOriginalFile)
+    if (_origFileOpen)
     {
         _uploadOriginalFile.close();
+        _origFileOpen = false;
     }
     _isUploading = false;
+    _uploadError = false;
     _uploadFrameIndex = -1;
     Serial.printf("[WebServer] Upload aborted. Free heap: %u\n", ESP.getFreeHeap());
+}
+
+void HoloWebServer::checkUploadTimeout()
+{
+    if (_isUploading && _lastUploadMs > 0 &&
+        (millis() - _lastUploadMs) > UPLOAD_TIMEOUT_MS)
+    {
+        Serial.printf("[WebServer] Upload timeout (%us idle), auto-recovering\n",
+                      UPLOAD_TIMEOUT_MS / 1000);
+        // Only set flags — do NOT close files here.
+        // File handles are owned by the async web server callbacks
+        // which run in a different FreeRTOS task. Closing from here
+        // would race with the upload handler and corrupt the heap.
+        _uploadError = true;
+        _isUploading = false;
+        _lastUploadMs = 0;
+    }
 }
 
 void HoloWebServer::handleGetFrame(AsyncWebServerRequest *request)
@@ -305,6 +400,9 @@ void HoloWebServer::handleUploadOriginal(AsyncWebServerRequest *request, const S
 {
     if (index == 0)
     {
+        _uploadError = false;
+        _lastUploadMs = millis();
+
         snprintf(_uploadPath, sizeof(_uploadPath), "%s/%s/original.gif",
                  GIFS_ROOT, request->pathArg(0).c_str());
 
@@ -312,20 +410,29 @@ void HoloWebServer::handleUploadOriginal(AsyncWebServerRequest *request, const S
         if (!_uploadOriginalFile)
         {
             Serial.printf("[WebServer] Cannot create original: %s\n", _uploadPath);
+            _uploadError = true;
             return;
         }
+        _origFileOpen = true;
     }
 
-    if (_uploadOriginalFile)
+    if (_origFileOpen && !_uploadError)
     {
-        _uploadOriginalFile.write(data, len);
+        _lastUploadMs = millis();
+        size_t written = _uploadOriginalFile.write(data, len);
+        if (written != len)
+        {
+            Serial.printf("[WebServer] Original write error: wrote %u/%u\n", written, len);
+            _uploadError = true;
+        }
     }
 
     if (final)
     {
-        if (_uploadOriginalFile)
+        if (_origFileOpen)
         {
             _uploadOriginalFile.close();
+            _origFileOpen = false;
             Serial.printf("[WebServer] Uploaded original done. Free heap: %u\n", ESP.getFreeHeap());
         }
 
@@ -456,4 +563,158 @@ void HoloWebServer::handleWifiPage(AsyncWebServerRequest *request)
                                                 return toWrite;
                                             });
     request->send(response);
+}
+
+void HoloWebServer::handleNowPlaying(AsyncWebServerRequest *request, JsonVariant &json)
+{
+    JsonObject obj = json.as<JsonObject>();
+    const char *title = obj["title"] | "";
+    const char *artist = obj["artist"] | "";
+    int frameCount = obj["frameCount"] | 0;
+
+    if (strlen(title) == 0 || frameCount <= 0)
+    {
+        request->send(400, "application/json", "{\"error\":\"title and frameCount required\"}");
+        return;
+    }
+
+    // Clean old frames
+    File dir = SD.open(NP_DIR);
+    if (dir && dir.isDirectory())
+    {
+        File entry = dir.openNextFile();
+        while (entry)
+        {
+            char path[32];
+            snprintf(path, sizeof(path), "%s/%s", NP_DIR, entry.name());
+            entry.close();
+            SD.remove(path);
+            entry = dir.openNextFile();
+        }
+        dir.close();
+    }
+    else
+    {
+        if (!SD.mkdir(NP_DIR))
+        {
+            Serial.printf("[WebServer] Failed to create %s\n", NP_DIR);
+            request->send(500, "application/json", "{\"error\":\"Failed to create NP directory\"}");
+            return;
+        }
+    }
+
+    _isUploading = true;
+    _uploadError = false;
+    _lastUploadMs = millis();
+    nowPlayingApp.updateTrack(title, artist, frameCount);
+
+    // Auto-switch to NowPlaying app
+    if (_onModeChange)
+        _onModeChange(1);
+
+    Serial.printf("[WebServer] NP start: \"%s\" (%d frames). Free heap: %u\n",
+                  title, frameCount, ESP.getFreeHeap());
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void HoloWebServer::handleGetNowPlaying(AsyncWebServerRequest *request)
+{
+    const NowPlayingInfo &info = nowPlayingApp.getInfo();
+
+    JsonDocument doc;
+    doc["title"] = info.title;
+    doc["artist"] = info.artist;
+    doc["frameCount"] = info.frameCount;
+    doc["framesReady"] = info.framesReady;
+    doc["active"] = (info.lastUpdate > 0);
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+}
+
+void HoloWebServer::handleUploadNpFrame(AsyncWebServerRequest *request, const String &filename,
+                                        size_t index, uint8_t *data, size_t len, bool final)
+{
+    if (index == 0)
+    {
+        _uploadError = false;
+        _lastUploadMs = millis();
+
+        snprintf(_uploadPath, sizeof(_uploadPath), "%s/%s.bmp",
+                 NP_DIR, request->pathArg(0).c_str());
+
+        _uploadFile = SD.open(_uploadPath, FILE_WRITE);
+        if (!_uploadFile)
+        {
+            Serial.printf("[WebServer] Cannot create: %s\n", _uploadPath);
+            _uploadError = true;
+            return;
+        }
+        _fileOpen = true;
+    }
+
+    if (_fileOpen && !_uploadError)
+    {
+        _lastUploadMs = millis();
+        size_t written = _uploadFile.write(data, len);
+        if (written != len)
+        {
+            Serial.printf("[WebServer] NP write error: wrote %u/%u\n", written, len);
+            _uploadError = true;
+        }
+    }
+
+    if (final)
+    {
+        if (_fileOpen)
+        {
+            _uploadFile.close();
+            _fileOpen = false;
+        }
+    }
+}
+
+void HoloWebServer::handleNpReady(AsyncWebServerRequest *request)
+{
+    _isUploading = false;
+    nowPlayingApp.setFramesReady();
+    Serial.printf("[WebServer] NP frames ready. Free heap: %u\n", ESP.getFreeHeap());
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void HoloWebServer::handleSetMode(AsyncWebServerRequest *request, JsonVariant &json)
+{
+    JsonObject obj = json.as<JsonObject>();
+    int app = obj["app"] | -1;
+
+    if (app < 0)
+    {
+        request->send(400, "application/json", "{\"error\":\"Invalid app index\"}");
+        return;
+    }
+
+    if (_onModeChange)
+        _onModeChange(app);
+
+    request->send(200, "application/json", "{\"success\":true}");
+}
+
+void HoloWebServer::handleGetMode(AsyncWebServerRequest *request)
+{
+    extern App *apps[];
+    extern const int APP_COUNT;
+    extern int currentAppIndex;
+
+    JsonDocument doc;
+    doc["current"] = currentAppIndex;
+    JsonArray arr = doc["apps"].to<JsonArray>();
+    for (int i = 0; i < APP_COUNT; i++)
+    {
+        arr.add(apps[i]->name());
+    }
+
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
 }

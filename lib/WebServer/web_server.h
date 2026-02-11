@@ -13,13 +13,16 @@ public:
 
     void begin();
     void setOnGifChange(void (*callback)());
+    void setOnModeChange(void (*callback)(int));
 
     String getLocalIP();
     bool isUploading() const { return _isUploading; }
+    void checkUploadTimeout();
 
 private:
     AsyncWebServer _server;
     void (*_onGifChange)();
+    void (*_onModeChange)(int);
 
     void setupRoutes();
 
@@ -38,6 +41,13 @@ private:
     void handleWifiPage(AsyncWebServerRequest *request);
     void handleGetWifi(AsyncWebServerRequest *request);
     void handleSaveWifi(AsyncWebServerRequest *request, JsonVariant &json);
+    void handleNowPlaying(AsyncWebServerRequest *request, JsonVariant &json);
+    void handleGetNowPlaying(AsyncWebServerRequest *request);
+    void handleUploadNpFrame(AsyncWebServerRequest *request, const String &filename,
+                             size_t index, uint8_t *data, size_t len, bool final);
+    void handleNpReady(AsyncWebServerRequest *request);
+    void handleSetMode(AsyncWebServerRequest *request, JsonVariant &json);
+    void handleGetMode(AsyncWebServerRequest *request);
     void abortUpload();
 
     char _uploadPath[64];
@@ -45,6 +55,10 @@ private:
     File _uploadFile;
     File _uploadOriginalFile;
     bool _isUploading = false;
+    bool _uploadError = false;
+    unsigned long _lastUploadMs = 0;
+    volatile bool _fileOpen = false;
+    volatile bool _origFileOpen = false;
 };
 
 extern HoloWebServer webServer;
@@ -495,6 +509,15 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             <h1>Holocubic</h1>
             <p class="subtitle">GIF Manager · <a href="/wifi" style="color:var(--accent);text-decoration:none;">WiFi Settings</a></p>
         </header>
+        
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">App Mode</span>
+                <span class="subtitle" id="currentApp">--</span>
+            </div>
+            <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;" id="appButtons">
+            </div>
+        </div>
         
         <div class="card">
             <div class="card-header">
@@ -1384,7 +1407,34 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             });
         });
         
+        // App mode
+        async function loadAppMode() {
+            try {
+                const res = await fetch('/api/mode');
+                const data = await res.json();
+                const container = document.getElementById('appButtons');
+                const label = document.getElementById('currentApp');
+                label.textContent = data.apps[data.current] || '--';
+                container.innerHTML = '';
+                data.apps.forEach((name, i) => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn ' + (i === data.current ? 'btn-primary' : 'btn-secondary');
+                    btn.textContent = name;
+                    btn.onclick = async () => {
+                        await fetch('/api/mode', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({app: i})
+                        });
+                        await loadAppMode();
+                    };
+                    container.appendChild(btn);
+                });
+            } catch(e) { console.error('loadAppMode', e); }
+        }
+
         // Initial load
+        loadAppMode();
         loadGifs();
     </script>
 </body>

@@ -7,7 +7,8 @@ struct NowPlayingInfo
 {
     char title[64];
     char artist[48];
-    bool hasArt;
+    int frameCount;
+    bool framesReady;
     unsigned long lastUpdate;
 };
 
@@ -21,16 +22,20 @@ public:
     void loop() override;
     const char *name() const override { return "NowPlaying"; }
 
-    // Called from web server when new track data arrives
-    void updateTrack(const char *title, const char *artist);
-    void updateArt(const uint8_t *bmpData, size_t len);
+    // Called from web server
+    void updateTrack(const char *title, const char *artist, int frameCount);
+    void setFramesReady();
     const NowPlayingInfo &getInfo() const { return _info; }
 
 private:
     NowPlayingInfo _info;
+
+    int _currentFrame;
+    unsigned long _lastFrameTime;
     bool _needRedraw;
 
-    void render();
+    void playFrame();
+    void renderIdle();
 };
 
 extern NowPlayingApp nowPlayingApp;

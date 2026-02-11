@@ -76,6 +76,11 @@ uint16_t *Display::getBackBuffer()
     return _canvas[backIdx] ? _canvas[backIdx]->getBuffer() : nullptr;
 }
 
+GFXcanvas16 *Display::getBackCanvas()
+{
+    return _canvas[1 - _frontIdx];
+}
+
 void Display::renderCanvas()
 {
     // Render front buffer
