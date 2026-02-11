@@ -19,11 +19,30 @@ ESP32 透明小電視，透過 SD 卡播放 GIF 動畫，支援網頁管理介�
 
 ## Architecture
 
-### Dual-Core Pipeline
+### App System
+`main.cpp` 管理 App 生命週期，每個 App 繼承 `App` 基類：
+
+```cpp
+class App {
+    virtual void onEnter() = 0;
+    virtual void onExit() = 0;
+    virtual void loop() = 0;
+    virtual bool onTilt(int direction) { return false; }
+    virtual const char *name() const = 0;
+};
+```
+
+| Module | Class | Instance | Purpose |
+|--------|-------|----------|---------|
+| `App/` | `App` | — | 抽象基類 |
+| `GifApp/` | `GifApp` | `gifApp` | GIF 播放 + 雙核 pipeline |
+| `NowPlayingApp/` | `NowPlayingApp` | `nowPlayingApp` | 音樂正在播放（stub） |
+
+### Dual-Core Pipeline (GifApp)
 - **Core 0**: 背景任務 `frameLoaderTask` — 從 SD 解碼 BMP 到 back buffer
 - **Core 1**: Arduino `loop()` — 渲染 TFT、處理傾斜、Web server
 
-### Module Structure (`lib/`)
+### Shared Modules (`lib/`)
 每個模組都是獨立的 class + 全域 `extern` 實例：
 
 | Module | Class | Instance | Purpose |

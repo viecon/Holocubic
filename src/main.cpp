@@ -10,47 +10,21 @@
 #include "mpu.h"
 #include "gif_manager.h"
 #include "web_server.h"
+#include "app.h"
+#include "gif_app.h"
+#include "now_playing_app.h"
 
-// State
-int currentGifIndex = 0;
-int currentFrameIndex = 0;
-unsigned long lastFrameTime = 0;
+// App system
+App *apps[] = {&gifApp, &nowPlayingApp};
+const int APP_COUNT = sizeof(apps) / sizeof(apps[0]);
+int currentAppIndex = 0;
+
+// Overlay state (shared across apps)
 unsigned long overlayTriggerTime = 0;
 bool overlayVisible = false;
-GifInfo currentGif;
-bool needRefreshGifList = false;
 
-// Dual-core pipeline
-static TaskHandle_t loaderTaskHandle = NULL;
-static volatile bool frameLoaded = false;
-static volatile bool loaderBusy = false;
-static char nextFramePath[64];
-
-// Function declarations
 void connectWiFi();
-void loadCurrentGif();
-void onGifChange();
-void playFrame();
-const char *getTimeString();
-void frameLoaderTask(void *pvParameters);
-
-void frameLoaderTask(void *pvParameters)
-{
-  for (;;)
-  {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-    if (webServer.isUploading())
-      continue;
-
-    loaderBusy = true;
-    if (display.decodeBmpToCanvas(nextFramePath))
-    {
-      frameLoaded = true;
-    }
-    loaderBusy = false;
-  }
-}
+void switchApp(int newIndex);
 
 void setup()
 {
@@ -86,7 +60,8 @@ void setup()
   mpu.calibrate(300);
   Serial.println("[Main] MPU calibrated");
 
-  webServer.setOnGifChange(onGifChange);
+  webServer.setOnGifChange([]()
+                           { gifApp.notifyGifChange(); });
   webServer.begin();
 
   display.showIP(webServer.getLocalIP().c_str());
@@ -94,52 +69,20 @@ void setup()
   delay(3000);
 
   display.clear();
-  loadCurrentGif();
+
+  // Enter first app
+  currentAppIndex = 0;
+  apps[currentAppIndex]->onEnter();
   overlayVisible = true;
   overlayTriggerTime = millis();
 
-  xTaskCreatePinnedToCore(
-      frameLoaderTask,
-      "FrameLoader",
-      4096,
-      NULL,
-      1,
-      &loaderTaskHandle,
-      0);
-  Serial.println("[Main] Dual-core frame loader started on Core 0");
-
-  Serial.println("[Main] Ready! Tilt left/right to switch GIFs");
-  Serial.printf("[Main] Found %d GIFs\n", gifManager.getGifCount());
+  Serial.printf("[Main] Ready! Running %s app. %d GIFs found.\n",
+                apps[currentAppIndex]->name(), gifManager.getGifCount());
 }
 
 void loop()
 {
-  // Check if GIF list needs refresh
-  if (needRefreshGifList)
-  {
-    needRefreshGifList = false;
-    gifManager.refresh();
-
-    int count = gifManager.getGifCount();
-    if (count == 0)
-    {
-      currentGif.valid = false;
-      currentGifIndex = 0;
-      display.clear();
-      display.showMessage("No GIFs");
-      display.showIP(webServer.getLocalIP().c_str());
-    }
-    else
-    {
-      if (currentGifIndex >= count)
-      {
-        currentGifIndex = 0;
-      }
-      loadCurrentGif();
-    }
-  }
-
-  // Check tilt for GIF switching
+  // Check tilt
   static unsigned long lastMpuCheck = 0;
   int tiltDir = 0;
   if (millis() - lastMpuCheck >= 50)
@@ -147,21 +90,14 @@ void loop()
     lastMpuCheck = millis();
     tiltDir = mpu.checkTiltChange();
   }
+
+  // Pass tilt to current app; if unhandled, could be used for app switching
   if (tiltDir != 0)
   {
-    int count = gifManager.getGifCount();
-    if (count > 0)
+    if (apps[currentAppIndex]->onTilt(tiltDir))
     {
-      currentGifIndex += tiltDir;
-      if (currentGifIndex >= count)
-        currentGifIndex = 0;
-      if (currentGifIndex < 0)
-        currentGifIndex = count - 1;
-
-      loadCurrentGif();
       overlayVisible = true;
       overlayTriggerTime = millis();
-      Serial.printf("[Main] Switched to GIF %d: %s\n", currentGifIndex, currentGif.name.c_str());
     }
   }
 
@@ -171,11 +107,22 @@ void loop()
     overlayVisible = false;
   }
 
-  // Play current frame (skip if uploading)
-  if (currentGif.valid && !webServer.isUploading())
-  {
-    playFrame();
-  }
+  // Run current app
+  apps[currentAppIndex]->loop();
+}
+
+void switchApp(int newIndex)
+{
+  if (newIndex < 0 || newIndex >= APP_COUNT || newIndex == currentAppIndex)
+    return;
+
+  apps[currentAppIndex]->onExit();
+  currentAppIndex = newIndex;
+  apps[currentAppIndex]->onEnter();
+
+  overlayVisible = true;
+  overlayTriggerTime = millis();
+  Serial.printf("[Main] Switched to %s app\n", apps[currentAppIndex]->name());
 }
 
 bool loadWiFiConfig(String &ssid, String &password)
@@ -238,7 +185,6 @@ void connectWiFi()
     if (WiFi.status() == WL_CONNECTED)
     {
       Serial.printf("\n[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-
       configTime(NTP_GMT_OFFSET, NTP_DAYLIGHT_OFFSET, NTP_SERVER);
       Serial.println("[NTP] Time sync started");
       return;
@@ -248,7 +194,6 @@ void connectWiFi()
     WiFi.disconnect(true);
   }
 
-  // Fallback: AP mode
   Serial.println("[WiFi] Starting AP mode");
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASSWORD);
@@ -259,108 +204,4 @@ void connectWiFi()
   display.showMessage("WiFi Setup", 10, 30);
   display.showMessage(String("AP: ") + AP_SSID, 10, 50);
   display.showMessage(WiFi.softAPIP().toString(), 10, 70);
-}
-
-void loadCurrentGif()
-{
-  Serial.printf("[Main] Loading GIF index %d...\n", currentGifIndex);
-
-  while (loaderBusy)
-  {
-    delay(1);
-  }
-
-  if (!gifManager.getGifInfoByIndex(currentGifIndex, currentGif))
-  {
-    Serial.println("[Main] Failed to get GIF info!");
-    currentGif.valid = false;
-    return;
-  }
-
-  currentFrameIndex = 0;
-  lastFrameTime = millis();
-  frameLoaded = false;
-
-  snprintf(nextFramePath, sizeof(nextFramePath), "/gifs/%s/%d.bmp",
-           currentGif.name.c_str(), currentFrameIndex);
-
-  if (loaderTaskHandle != NULL)
-  {
-    // Background loader available
-    xTaskNotifyGive(loaderTaskHandle);
-  }
-  else
-  {
-    // Initial setup before task is created
-    if (display.decodeBmpToCanvas(nextFramePath))
-    {
-      frameLoaded = true;
-    }
-  }
-
-  Serial.printf("[Main] Loaded GIF: %s (%d frames, %dx%d, delay=%dms)\n",
-                currentGif.name.c_str(), currentGif.frameCount, currentGif.width, currentGif.height, currentGif.defaultDelay);
-}
-
-void onGifChange()
-{
-  needRefreshGifList = true;
-}
-
-void playFrame()
-{
-  unsigned long now = millis();
-  uint16_t delay_ms = currentGif.defaultDelay;
-
-  // Wait for both frame delay AND background loader to finish
-  if (now - lastFrameTime >= delay_ms && frameLoaded)
-  {
-    lastFrameTime = now;
-    frameLoaded = false;
-
-    // Draw overlay on back buffer (which has the pre-loaded frame)
-    if (overlayVisible)
-    {
-      bool wifi = (WiFi.status() == WL_CONNECTED);
-      display.drawOverlay(wifi, getTimeString(),
-                          currentGif.name, currentGifIndex + 1, gifManager.getGifCount());
-    }
-
-    // Swap back→front and render to TFT
-    display.swapAndRender();
-
-    // Advance frame index
-    currentFrameIndex++;
-    if (currentFrameIndex >= currentGif.frameCount)
-    {
-      currentFrameIndex = 0;
-    }
-
-    // Signal Core 0 to pre-load next frame into back buffer
-    snprintf(nextFramePath, sizeof(nextFramePath), "/gifs/%s/%d.bmp",
-             currentGif.name.c_str(), currentFrameIndex);
-    xTaskNotifyGive(loaderTaskHandle);
-  }
-}
-
-char _cachedTimeStr[6] = "--:--";
-unsigned long _lastTimeUpdate = 0;
-bool _timeSynced = false;
-
-const char *getTimeString()
-{
-  unsigned long now = millis();
-  // Before first sync: try every 1s; after sync: update every 10s
-  unsigned long interval = _timeSynced ? 10000 : 1000;
-  if (now - _lastTimeUpdate >= interval)
-  {
-    _lastTimeUpdate = now;
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 10))
-    {
-      strftime(_cachedTimeStr, sizeof(_cachedTimeStr), "%H:%M", &timeinfo);
-      _timeSynced = true;
-    }
-  }
-  return _cachedTimeStr;
 }
