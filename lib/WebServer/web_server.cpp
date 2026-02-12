@@ -370,11 +370,10 @@ void HoloWebServer::checkUploadTimeout()
     {
         Serial.printf("[WebServer] Upload timeout (%us idle), auto-recovering\n",
                       UPLOAD_TIMEOUT_MS / 1000);
-        // Only set flags — do NOT close files here.
-        // File handles are owned by the async web server callbacks
-        // which run in a different FreeRTOS task. Closing from here
-        // would race with the upload handler and corrupt the heap.
-        _uploadError = true;
+        // Only clear _isUploading so frame loader can resume.
+        // Do NOT set _uploadError — it belongs to the upload handler
+        // context (async TCP task) and setting it here races with
+        // the response lambda, causing spurious 500 responses.
         _isUploading = false;
         _lastUploadMs = 0;
     }
@@ -578,41 +577,11 @@ void HoloWebServer::handleNowPlaying(AsyncWebServerRequest *request, JsonVariant
         return;
     }
 
-    // Clean old frames
-    File dir = SD.open(NP_DIR);
-    if (dir && dir.isDirectory())
-    {
-        File entry = dir.openNextFile();
-        while (entry)
-        {
-            char path[32];
-            snprintf(path, sizeof(path), "%s/%s", NP_DIR, entry.name());
-            entry.close();
-            SD.remove(path);
-            entry = dir.openNextFile();
-        }
-        dir.close();
-    }
-    else
-    {
-        if (!SD.mkdir(NP_DIR))
-        {
-            Serial.printf("[WebServer] Failed to create %s\n", NP_DIR);
-            request->send(500, "application/json", "{\"error\":\"Failed to create NP directory\"}");
-            return;
-        }
-    }
-
-    _isUploading = true;
-    _uploadError = false;
-    _lastUploadMs = millis();
+    // Only store metadata — frames will be uploaded later
+    // when the companion detects NowPlaying app is active
     nowPlayingApp.updateTrack(title, artist, frameCount);
 
-    // Auto-switch to NowPlaying app
-    if (_onModeChange)
-        _onModeChange(1);
-
-    Serial.printf("[WebServer] NP start: \"%s\" (%d frames). Free heap: %u\n",
+    Serial.printf("[WebServer] NP track: \"%s\" (%d frames). Free heap: %u\n",
                   title, frameCount, ESP.getFreeHeap());
     request->send(200, "application/json", "{\"success\":true}");
 }
@@ -638,8 +607,45 @@ void HoloWebServer::handleUploadNpFrame(AsyncWebServerRequest *request, const St
 {
     if (index == 0)
     {
+        // Close previously leaked file handle if any
+        if (_fileOpen)
+        {
+            _uploadFile.close();
+            _fileOpen = false;
+        }
+
         _uploadError = false;
         _lastUploadMs = millis();
+
+        // On first chunk of first frame, clean old files and set uploading
+        if (request->pathArg(0) == "0")
+        {
+            _isUploading = true;
+
+            // Clean old NP frames
+            File dir = SD.open(NP_DIR);
+            if (dir && dir.isDirectory())
+            {
+                File entry = dir.openNextFile();
+                while (entry)
+                {
+                    // entry.name() returns full path on ESP32
+                    const char *fullPath = entry.name();
+                    entry.close();
+                    SD.remove(fullPath);
+                    entry = dir.openNextFile();
+                }
+                dir.close();
+            }
+            else
+            {
+                if (!SD.mkdir(NP_DIR))
+                {
+                    Serial.printf("[WebServer] Failed to create %s\n", NP_DIR);
+                }
+            }
+            Serial.printf("[WebServer] NP upload start. Free heap: %u\n", ESP.getFreeHeap());
+        }
 
         snprintf(_uploadPath, sizeof(_uploadPath), "%s/%s.bmp",
                  NP_DIR, request->pathArg(0).c_str());

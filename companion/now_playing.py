@@ -22,6 +22,7 @@ import sys
 import time
 
 import requests
+import unicodedata
 from PIL import Image, ImageDraw, ImageFont
 
 from winrt.windows.media.control import (
@@ -203,6 +204,11 @@ class NowPlayingCompanion:
         self._interval = interval
         self._last_key = ""
         self._running = True
+        # Pending frames waiting to be uploaded
+        self._pending_title = ""
+        self._pending_artist = ""
+        self._pending_frames = None  # list of BMP bytes, or None
+        self._uploaded = False
 
     async def run(self):
         print(f"[Companion] Monitoring media -> http://{self._ip}")
@@ -231,38 +237,53 @@ class NowPlayingCompanion:
         props = await session.try_get_media_properties_async()
         title = props.title or ""
         artist = props.artist or ""
-
+        
         if not title:
             return
 
-        # Deduplicate
+        title = unicodedata.normalize("NFC", title)
+        artist = unicodedata.normalize("NFC", artist)
+
+        # Deduplicate — detect new track
         key = f"{title}\0{artist}"
-        if key == self._last_key:
-            return
+        if key != self._last_key:
+            self._last_key = key
+            print(f"  Now: {artist} - {title}")
 
-        self._last_key = key
-        print(f"  Now: {artist} - {title}")
+            # Read album art
+            art_bytes = await self._read_thumbnail(props.thumbnail)
+            art_img = None
+            if art_bytes:
+                try:
+                    art_img = Image.open(io.BytesIO(art_bytes)).convert("RGB")
+                except Exception:
+                    art_img = None
 
-        # Read album art
-        art_bytes = await self._read_thumbnail(props.thumbnail)
-        art_img = None
-        if art_bytes:
-            try:
-                art_img = Image.open(io.BytesIO(art_bytes)).convert("RGB")
-            except Exception:
-                art_img = None
+            # Render frames on PC
+            frames = _render_frames(art_img, title, artist)
+            print(f"    Rendered {len(frames)} frames")
 
-        # Render frames on PC
-        frames = _render_frames(art_img, title, artist)
-        print(f"    Rendered {len(frames)} frames")
+            # Store pending frames
+            self._pending_title = title
+            self._pending_artist = artist
+            self._pending_frames = frames
+            self._uploaded = False
 
-        # Upload to ESP32
-        ok = self._push_frames(title, artist, frames)
-        if ok:
-            print(f"    Uploaded OK")
-        else:
-            print(f"    Upload failed")
-            self._last_key = ""  # retry next poll
+            # Push metadata to ESP32 (no SD operations, no _isUploading)
+            ok = self._push_metadata(title, artist, len(frames))
+            if not ok:
+                self._last_key = ""  # retry next poll
+
+        # Try to upload pending frames if NowPlaying app is active
+        if self._pending_frames and not self._uploaded:
+            if self._is_now_playing_active():
+                print("    NowPlaying active, uploading frames...")
+                ok = self._upload_frames(self._pending_frames)
+                if ok:
+                    print("    Uploaded OK")
+                    self._uploaded = True
+                else:
+                    print("    Upload failed, will retry")
 
     # -- Windows Media Session ------------------------------------------------
 
@@ -286,32 +307,48 @@ class NowPlayingCompanion:
 
     # -- ESP32 HTTP API -------------------------------------------------------
 
-    def _push_frames(self, title, artist, frames):
-        """Upload pre-rendered frames + track info to ESP32."""
-        base = f"http://{self._ip}"
-
-        # 1. POST track info with frameCount
+    def _push_metadata(self, title, artist, frame_count):
+        """Send track metadata to ESP32 (no frame upload yet)."""
         try:
             r = requests.post(
-                f"{base}/api/now-playing",
+                f"http://{self._ip}/api/now-playing",
                 json={
                     "title": title,
                     "artist": artist,
-                    "frameCount": len(frames),
+                    "frameCount": frame_count,
                 },
                 timeout=HTTP_TIMEOUT,
             )
             if not r.ok:
-                print(f"    now-playing failed: {r.status_code}")
+                print(f"    metadata failed: {r.status_code}")
                 return False
+            return True
         except requests.RequestException as e:
-            print(f"    now-playing error: {e}")
+            print(f"    metadata error: {e}")
             return False
 
-        # Small delay to let ESP32 finish app switch + SD cleanup
-        time.sleep(0.3)
+    def _is_now_playing_active(self):
+        """Check if ESP32 is currently running the NowPlaying app."""
+        try:
+            r = requests.get(
+                f"http://{self._ip}/api/mode",
+                timeout=HTTP_TIMEOUT,
+            )
+            if r.ok:
+                data = r.json()
+                current = data.get("current", -1)
+                apps = data.get("apps", [])
+                if current >= 0 and current < len(apps):
+                    return apps[current] == "NowPlaying"
+        except requests.RequestException:
+            pass
+        return False
 
-        # 2. Upload each frame (with retry)
+    def _upload_frames(self, frames):
+        """Upload pre-rendered BMP frames to ESP32 SD card."""
+        base = f"http://{self._ip}"
+
+        # Upload each frame (with retry)
         for i, bmp in enumerate(frames):
             ok = False
             for attempt in range(3):
@@ -332,12 +369,11 @@ class NowPlayingCompanion:
                 print(f"    Frame {i} upload failed after 3 attempts")
                 return False
 
-        # 3. Signal frames ready
+        # Signal frames ready
         try:
             requests.post(f"{base}/api/np/ready", timeout=HTTP_TIMEOUT)
         except requests.RequestException as e:
             print(f"    Frames ready error: {e}")
-            pass
 
         return True
 

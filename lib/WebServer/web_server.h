@@ -54,9 +54,9 @@ private:
     int _uploadFrameIndex;
     File _uploadFile;
     File _uploadOriginalFile;
-    bool _isUploading = false;
-    bool _uploadError = false;
-    unsigned long _lastUploadMs = 0;
+    volatile bool _isUploading = false;
+    volatile bool _uploadError = false;
+    volatile unsigned long _lastUploadMs = 0;
     volatile bool _fileOpen = false;
     volatile bool _origFileOpen = false;
 };
