@@ -157,36 +157,23 @@ def _render_frames(art_img, title, artist):
 def _compose_frame(art_img, title, artist, title_offset, artist_offset):
     """Compose a single 128x128 frame with art + text bar."""
     img = art_img.copy()
-    draw = ImageDraw.Draw(img)
 
-    # Semi-transparent dark bar at bottom
+    # Darken bottom bar using fast point() instead of per-pixel getpixel/putpixel
     bar_y = ART_HEIGHT
-    for y in range(bar_y, CANVAS_SIZE):
-        for x in range(CANVAS_SIZE):
-            r, g, b = img.getpixel((x, y))
-            img.putpixel((x, y), (r // 3, g // 3, b // 3))
+    bar = img.crop((0, bar_y, CANVAS_SIZE, CANVAS_SIZE))
+    bar = bar.point(lambda p: p // 3)
+    img.paste(bar, (0, bar_y))
 
-    # Title (white)
-    title_y = bar_y + 2
-    title_x = 4 - title_offset
-    draw.text((title_x, title_y), title, font=TITLE_FONT, fill=(255, 255, 255))
+    # Draw text
+    draw = ImageDraw.Draw(img)
+    draw.text((4 - title_offset, bar_y + 2), title, font=TITLE_FONT, fill=(255, 255, 255))
+    draw.text((4 - artist_offset, bar_y + 16), artist, font=ARTIST_FONT, fill=(0, 210, 255))
 
-    # Artist (cyan)
-    artist_y = bar_y + 16
-    artist_x = 4 - artist_offset
-    draw.text((artist_x, artist_y), artist, font=ARTIST_FONT, fill=(0, 210, 255))
-
-    # Clip text bar side edges (redraw art edges to mask overflow)
-    # Left mask
-    for y in range(bar_y, CANVAS_SIZE):
-        for x in range(0, 3):
-            r, g, b = art_img.getpixel((x, y))
-            img.putpixel((x, y), (r // 3, g // 3, b // 3))
-    # Right mask
-    for y in range(bar_y, CANVAS_SIZE):
-        for x in range(CANVAS_SIZE - 3, CANVAS_SIZE):
-            r, g, b = art_img.getpixel((x, y))
-            img.putpixel((x, y), (r // 3, g // 3, b // 3))
+    # Mask text overflow at edges (redraw darkened art edges)
+    left_mask = art_img.crop((0, bar_y, 3, CANVAS_SIZE)).point(lambda p: p // 3)
+    right_mask = art_img.crop((CANVAS_SIZE - 3, bar_y, CANVAS_SIZE, CANVAS_SIZE)).point(lambda p: p // 3)
+    img.paste(left_mask, (0, bar_y))
+    img.paste(right_mask, (CANVAS_SIZE - 3, bar_y))
 
     return img
 

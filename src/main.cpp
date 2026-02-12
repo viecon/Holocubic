@@ -66,6 +66,7 @@ void setup()
                             {
                               if (index >= 0 && index < APP_COUNT && index != currentAppIndex)
                                 switchApp(index); });
+  webServer.setAppInfo(apps, &APP_COUNT, &currentAppIndex);
   webServer.begin();
 
   display.showIP(webServer.getLocalIP().c_str());

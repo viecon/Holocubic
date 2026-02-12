@@ -1,4 +1,5 @@
 #include "web_server.h"
+#include "web_html.h"
 #include "gif_manager.h"
 #include "now_playing_app.h"
 #include "app.h"
@@ -10,8 +11,12 @@
 
 HoloWebServer webServer;
 
+bool isUploadActive() { return webServer.isUploading(); }
+
 HoloWebServer::HoloWebServer(uint16_t port)
-    : _server(port), _onGifChange(nullptr), _onModeChange(nullptr), _uploadFrameIndex(-1)
+    : _server(port), _onGifChange(nullptr), _onModeChange(nullptr),
+      _apps(nullptr), _appCount(nullptr), _currentIndex(nullptr),
+      _uploadFrameIndex(-1)
 {
 }
 
@@ -30,6 +35,13 @@ void HoloWebServer::setOnGifChange(void (*callback)())
 void HoloWebServer::setOnModeChange(void (*callback)(int))
 {
     _onModeChange = callback;
+}
+
+void HoloWebServer::setAppInfo(App **apps, const int *appCount, int *currentIndex)
+{
+    _apps = apps;
+    _appCount = appCount;
+    _currentIndex = currentIndex;
 }
 
 String HoloWebServer::getLocalIP()
@@ -708,16 +720,18 @@ void HoloWebServer::handleSetMode(AsyncWebServerRequest *request, JsonVariant &j
 
 void HoloWebServer::handleGetMode(AsyncWebServerRequest *request)
 {
-    extern App *apps[];
-    extern const int APP_COUNT;
-    extern int currentAppIndex;
+    if (!_apps || !_appCount || !_currentIndex)
+    {
+        request->send(500, "application/json", "{\"error\":\"App info not set\"}");
+        return;
+    }
 
     JsonDocument doc;
-    doc["current"] = currentAppIndex;
+    doc["current"] = *_currentIndex;
     JsonArray arr = doc["apps"].to<JsonArray>();
-    for (int i = 0; i < APP_COUNT; i++)
+    for (int i = 0; i < *_appCount; i++)
     {
-        arr.add(apps[i]->name());
+        arr.add(_apps[i]->name());
     }
 
     String response;
