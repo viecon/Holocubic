@@ -22,7 +22,6 @@ public:
     void loop() override;
     const char *name() const override { return "NowPlaying"; }
 
-    // Called from web server
     void updateTrack(const char *title, const char *artist, int frameCount);
     void setFramesReady();
     const NowPlayingInfo &getInfo() const { return _info; }

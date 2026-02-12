@@ -5,11 +5,8 @@
 
 NowPlayingApp nowPlayingApp;
 
-// Free function bridge — avoids heavy web_server.h include
-// Defined in web_server.cpp
 extern bool isUploadActive();
 
-// Color constants (RGB565)
 static const uint16_t COLOR_GRAY = 0x7BEF;
 
 NowPlayingApp::NowPlayingApp()

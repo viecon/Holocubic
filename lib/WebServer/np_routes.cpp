@@ -6,8 +6,6 @@
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
 
-// --- Handlers ---
-
 static void handleNowPlaying(AsyncWebServerRequest *request, JsonVariant &json)
 {
     JsonObject obj = json.as<JsonObject>();
@@ -21,7 +19,6 @@ static void handleNowPlaying(AsyncWebServerRequest *request, JsonVariant &json)
         return;
     }
 
-    // Only store metadata — frames uploaded later when NowPlaying app is active
     nowPlayingApp.updateTrack(title, artist, frameCount);
 
     Serial.printf("[NpRoutes] Track: \"%s\" (%d frames). Free heap: %u\n",
@@ -50,28 +47,22 @@ static void handleUploadNpFrame(AsyncWebServerRequest *request, const String &fi
 {
     if (index == 0)
     {
-        // Close previously leaked file handle if any
         if (uploadManager.isFileOpen())
-        {
             uploadManager.closeFile();
-        }
 
         uploadManager.setError(false);
         uploadManager.touchTimestamp();
 
-        // On first chunk of first frame, clean old files and set uploading
         if (request->pathArg(0) == "0")
         {
             uploadManager.setUploading(true);
 
-            // Clean old NP frames
             File dir = SD.open(NP_DIR);
             if (dir && dir.isDirectory())
             {
                 File entry = dir.openNextFile();
                 while (entry)
                 {
-                    // entry.name() returns full path on ESP32
                     const char *fullPath = entry.name();
                     entry.close();
                     SD.remove(fullPath);
@@ -112,8 +103,6 @@ static void handleNpReady(AsyncWebServerRequest *request)
     Serial.printf("[NpRoutes] NP frames ready. Free heap: %u\n", ESP.getFreeHeap());
     request->send(200, "application/json", "{\"success\":true}");
 }
-
-// --- Route registration ---
 
 void NpRoutes::registerRoutes(AsyncWebServer &server)
 {

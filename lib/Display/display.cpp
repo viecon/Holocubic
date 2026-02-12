@@ -126,7 +126,6 @@ bool Display::decodeBmpToCanvas(const char *filename)
     bool is24bit = (bits == 24 && comp == 0);
     if (!is16bit && !is24bit)
     {
-        Serial.printf("[Display] Unsupported BMP: %d-bit, comp=%d\n", bits, comp);
         bmp.close();
         return false;
     }
@@ -139,15 +138,12 @@ bool Display::decodeBmpToCanvas(const char *filename)
     uint32_t rowSize = ((w * bytesPerPixel + 3) & ~3);
     if (rowSize > MAX_ROW_BUFFER)
     {
-        Serial.println("[Display] BMP too wide");
         bmp.close();
         return false;
     }
 
     if (w < CANVAS_WIDTH || h < CANVAS_HEIGHT)
-    {
         clearBackBuffer();
-    }
 
     int offsetX = (CANVAS_WIDTH - w) >> 1;
     int offsetY = (CANVAS_HEIGHT - h) >> 1;
@@ -228,12 +224,10 @@ void Display::drawOverlay(bool wifiConnected, const char *timeStr,
 
     uint16_t *fb = _canvas[backIdx]->getBuffer();
 
-    // --- Top overlay bar (first OVERLAY_HEIGHT rows) ---
     dimCanvasRegion(fb, 0, OVERLAY_HEIGHT, CANVAS_WIDTH);
 
     _canvas[backIdx]->setTextSize(1);
 
-    // WiFi indicator (left)
     _canvas[backIdx]->setCursor(2, 4);
     if (wifiConnected)
     {
@@ -246,7 +240,6 @@ void Display::drawOverlay(bool wifiConnected, const char *timeStr,
         _canvas[backIdx]->print("----");
     }
 
-    // Time (right)
     if (timeStr && timeStr[0] != '\0')
     {
         _canvas[backIdx]->setTextColor(ST77XX_WHITE);
@@ -255,11 +248,9 @@ void Display::drawOverlay(bool wifiConnected, const char *timeStr,
         _canvas[backIdx]->print(timeStr);
     }
 
-    // --- Bottom overlay bar (last OVERLAY_HEIGHT rows) ---
     int bottomY = CANVAS_HEIGHT - OVERLAY_HEIGHT;
     dimCanvasRegion(fb, bottomY, OVERLAY_HEIGHT, CANVAS_WIDTH);
 
-    // GIF name (left, truncate)
     _canvas[backIdx]->setCursor(2, bottomY + 4);
     _canvas[backIdx]->setTextColor(ST77XX_CYAN);
     char displayName[16];
@@ -277,7 +268,6 @@ void Display::drawOverlay(bool wifiConnected, const char *timeStr,
     }
     _canvas[backIdx]->print(displayName);
 
-    // Position "3/10" (right)
     _canvas[backIdx]->setTextColor(ST77XX_YELLOW);
     char posStr[12];
     int posLen = snprintf(posStr, sizeof(posStr), "%d/%d", current, total);

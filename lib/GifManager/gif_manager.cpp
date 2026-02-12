@@ -17,10 +17,7 @@ bool GifManager::begin()
 
     Serial.printf("[GifManager] SD card initialized @ %d MHz\n", SD_SPI_FREQUENCY / 1000000);
 
-    // Ensure gifs directory exists
-    ensureDirectory(GIFS_ROOT); // GIFS_ROOT is a const char*
-
-    // Load existing GIFs
+    ensureDirectory(GIFS_ROOT);
     return refresh();
 }
 
@@ -37,14 +34,12 @@ bool GifManager::refresh()
 {
     _gifNames.clear();
 
-    // First try to load from order.json
     if (loadOrder())
     {
         Serial.printf("[GifManager] Loaded %d GIFs from order\n", _gifNames.size());
         return true;
     }
 
-    // Otherwise scan directory
     File root = SD.open(GIFS_ROOT);
     if (!root || !root.isDirectory())
     {
@@ -58,16 +53,11 @@ bool GifManager::refresh()
         if (entry.isDirectory())
         {
             String fullPath = entry.name();
-            Serial.printf("[GifManager] Found entry: %s\n", fullPath.c_str());
-
-            // Extract just the folder name from path
             int lastSlash = fullPath.lastIndexOf('/');
             String name = (lastSlash >= 0) ? fullPath.substring(lastSlash + 1) : fullPath;
 
-            // Skip hidden directories
             if (name.length() > 0 && name[0] != '.')
             {
-                Serial.printf("[GifManager] Found GIF folder: %s\n", name.c_str());
                 _gifNames.push_back(name);
             }
         }
@@ -75,11 +65,8 @@ bool GifManager::refresh()
     }
     root.close();
 
-    // Save the discovered order
     if (!_gifNames.empty())
-    {
         saveOrder();
-    }
 
     Serial.printf("[GifManager] Found %d GIFs\n", _gifNames.size());
     return true;
@@ -164,14 +151,9 @@ bool GifManager::loadGifConfig(const String &name, GifInfo &info)
 {
     snprintf(_pathBuf, sizeof(_pathBuf), "%s/%s/%s", GIFS_ROOT, name.c_str(), GIF_CONFIG_FILE);
 
-    Serial.printf("[GifManager] Loading config: %s\n", _pathBuf);
-
     File f = SD.open(_pathBuf, FILE_READ);
     if (!f)
-    {
-        Serial.printf("[GifManager] Config not found: %s\n", _pathBuf);
         return false;
-    }
 
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, f);
@@ -189,10 +171,6 @@ bool GifManager::loadGifConfig(const String &name, GifInfo &info)
     info.height = doc["height"] | CANVAS_HEIGHT;
     info.defaultDelay = doc["defaultDelay"] | 100;
     info.valid = true;
-
-    Serial.printf("[GifManager] Config loaded: frames=%d, size=%dx%d, delay=%d\n",
-                  info.frameCount, info.width, info.height, info.defaultDelay);
-
     return true;
 }
 
@@ -235,7 +213,6 @@ bool GifManager::getGifInfoByIndex(int index, GifInfo &info)
 
 bool GifManager::createGif(const String &name, int frameCount, int width, int height, uint16_t defaultDelay)
 {
-    // Create directory
     snprintf(_pathBuf, sizeof(_pathBuf), "%s/%s", GIFS_ROOT, name.c_str());
 
     if (!ensureDirectory(_pathBuf))
@@ -244,7 +221,6 @@ bool GifManager::createGif(const String &name, int frameCount, int width, int he
         return false;
     }
 
-    // Create config
     GifInfo info;
     info.name = name;
     info.frameCount = frameCount;
@@ -258,7 +234,6 @@ bool GifManager::createGif(const String &name, int frameCount, int width, int he
         return false;
     }
 
-    // Add to list if not already present
     bool found = false;
     for (const auto &n : _gifNames)
     {
@@ -305,35 +280,24 @@ bool GifManager::deleteDirectory(const String &path)
 {
     File dir = SD.open(path);
     if (!dir || !dir.isDirectory())
-    {
-        Serial.printf("[GifManager] deleteDir: cannot open %s\n", path.c_str());
         return false;
-    }
 
     char entryPath[64];
     File entry;
     while ((entry = dir.openNextFile()))
     {
-        // Copy path before close — entry.name() pointer invalidates after close()
         snprintf(entryPath, sizeof(entryPath), "%s/%s", path.c_str(), entry.name());
         bool isDir = entry.isDirectory();
         entry.close();
 
         if (isDir)
-        {
             deleteDirectory(entryPath);
-        }
         else
-        {
-            bool ok = SD.remove(entryPath);
-            Serial.printf("[GifManager]   rm %s -> %s\n", entryPath, ok ? "OK" : "FAIL");
-        }
+            SD.remove(entryPath);
     }
     dir.close();
 
-    bool ok = SD.rmdir(path);
-    Serial.printf("[GifManager] rmdir %s -> %s\n", path.c_str(), ok ? "OK" : "FAIL");
-    return ok;
+    return SD.rmdir(path);
 }
 
 bool GifManager::deleteGif(const String &name)
@@ -346,7 +310,6 @@ bool GifManager::deleteGif(const String &name)
         return false;
     }
 
-    // Remove from list
     for (auto it = _gifNames.begin(); it != _gifNames.end(); ++it)
     {
         if (*it == name)
@@ -362,7 +325,6 @@ bool GifManager::deleteGif(const String &name)
 
 bool GifManager::reorderGifs(const std::vector<String> &names)
 {
-    // Verify all names exist
     for (const auto &name : names)
     {
         bool found = false;

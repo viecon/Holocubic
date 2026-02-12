@@ -12,7 +12,6 @@ public:
     virtual void onExit() = 0;
     virtual void loop() = 0;
 
-    // Left/right tilt within the app (return true if handled)
     virtual bool onTilt(int direction) { return false; }
 
     virtual const char *name() const = 0;

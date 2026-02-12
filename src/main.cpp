@@ -14,12 +14,10 @@
 #include "gif_app.h"
 #include "now_playing_app.h"
 
-// App system
 App *apps[] = {&gifApp, &nowPlayingApp};
 extern const int APP_COUNT = sizeof(apps) / sizeof(apps[0]);
 int currentAppIndex = 0;
 
-// Overlay state (shared across apps)
 unsigned long overlayTriggerTime = 0;
 bool overlayVisible = false;
 
@@ -30,7 +28,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== Holocubic Starting ===");
+  Serial.println("[Main] Starting");
 
   SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI);
   SPI.setFrequency(SPI_FREQUENCY);
@@ -75,7 +73,6 @@ void setup()
 
   display.clear();
 
-  // Enter first app
   currentAppIndex = 0;
   apps[currentAppIndex]->onEnter();
   overlayVisible = true;
@@ -87,7 +84,6 @@ void setup()
 
 void loop()
 {
-  // Check tilt
   static unsigned long lastMpuCheck = 0;
   int tiltDir = 0;
   int pitchDir = 0;
@@ -98,7 +94,6 @@ void loop()
     pitchDir = mpu.checkPitchChange();
   }
 
-  // Forward/backward pitch → switch App
   if (pitchDir != 0)
   {
     int newIdx = currentAppIndex + pitchDir;
@@ -109,7 +104,6 @@ void loop()
     switchApp(newIdx);
   }
 
-  // Left/right tilt → pass to current app
   if (tiltDir != 0)
   {
     if (apps[currentAppIndex]->onTilt(tiltDir))
@@ -119,16 +113,12 @@ void loop()
     }
   }
 
-  // Auto-hide overlay
   if (overlayVisible && (millis() - overlayTriggerTime >= OVERLAY_SHOW_MS))
   {
     overlayVisible = false;
   }
 
-  // Recover from stale uploads (e.g. companion crash mid-upload)
   webServer.checkUploadTimeout();
-
-  // Run current app
   apps[currentAppIndex]->loop();
 }
 

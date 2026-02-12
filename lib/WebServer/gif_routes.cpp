@@ -14,8 +14,6 @@ void GifRoutes::setOnGifChange(void (*callback)())
     _onGifChange = callback;
 }
 
-// --- Response handler shared by frame & original upload ---
-
 static void uploadResponseHandler(AsyncWebServerRequest *request)
 {
     if (uploadManager.consumeError())
@@ -28,8 +26,6 @@ static void uploadResponseHandler(AsyncWebServerRequest *request)
     }
 }
 
-// --- Handlers ---
-
 static void handleGetGifs(AsyncWebServerRequest *request)
 {
     gifManager.refresh();
@@ -38,7 +34,6 @@ static void handleGetGifs(AsyncWebServerRequest *request)
     JsonArray arr = doc.to<JsonArray>();
 
     int count = gifManager.getGifCount();
-    Serial.printf("[GifRoutes] handleGetGifs: found %d GIFs\n", count);
 
     for (int i = 0; i < count; i++)
     {
@@ -242,8 +237,6 @@ static void handleReorder(AsyncWebServerRequest *request, JsonVariant &json)
     }
 }
 
-// --- Route registration ---
-
 void GifRoutes::registerRoutes(AsyncWebServer &server)
 {
     server.on("/api/gifs", HTTP_GET, handleGetGifs);
@@ -260,7 +253,6 @@ void GifRoutes::registerRoutes(AsyncWebServer &server)
         uploadResponseHandler,
         handleUploadFrame);
 
-    // Original GIF routes must be before /api/gif JSON handler
     server.on("^\\/api\\/gif\\/([^\\/]+)\\/original$", HTTP_GET, handleGetOriginal);
 
     server.on(

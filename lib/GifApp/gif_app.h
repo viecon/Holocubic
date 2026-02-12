@@ -15,7 +15,6 @@ public:
     bool onTilt(int direction) override;
     const char *name() const override { return "GIF"; }
 
-    // Called from web server when GIFs change
     void notifyGifChange();
 
 private:
@@ -25,7 +24,6 @@ private:
     GifInfo _currentGif;
     bool _needRefresh;
 
-    // Dual-core pipeline
     static TaskHandle_t _loaderTask;
     static volatile bool _frameLoaded;
     static volatile bool _loaderBusy;

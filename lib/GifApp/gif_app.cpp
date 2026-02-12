@@ -6,13 +6,11 @@
 
 GifApp gifApp;
 
-// Static members
 TaskHandle_t GifApp::_loaderTask = NULL;
 volatile bool GifApp::_frameLoaded = false;
 volatile bool GifApp::_loaderBusy = false;
 char GifApp::_nextFramePath[64] = {0};
 
-// Time string cache (shared utility)
 static char _cachedTimeStr[6] = "--:--";
 static unsigned long _lastTimeUpdate = 0;
 static bool _timeSynced = false;
@@ -63,7 +61,6 @@ void GifApp::onEnter()
 {
     Serial.println("[GifApp] Enter");
 
-    // Start frame loader task if not already running
     if (_loaderTask == NULL)
     {
         xTaskCreatePinnedToCore(
@@ -83,7 +80,6 @@ void GifApp::onEnter()
 void GifApp::onExit()
 {
     Serial.println("[GifApp] Exit");
-    // Loader task stays alive but idle (waiting on notify)
 }
 
 void GifApp::loop()
@@ -195,7 +191,6 @@ void GifApp::playFrame()
     xTaskNotifyGive(_loaderTask);
 }
 
-// Declared in main.cpp
 extern bool overlayVisible;
 
 void GifApp::showOverlay()

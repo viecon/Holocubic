@@ -14,7 +14,6 @@ void MPU::begin()
     Wire.begin(I2C_SDA, I2C_SCL);
     Wire.setClock(I2C_FREQUENCY);
 
-    // Wake up MPU6050
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(REG_PWR_MGMT_1);
     Wire.write(0x00);
@@ -41,7 +40,7 @@ void MPU::calibrate(int samples)
 
     _offAx = sumx / samples;
     _offAy = sumy / samples;
-    _offAz = sumz / samples - 1.0f; // Subtract gravity
+    _offAz = sumz / samples - 1.0f;
 
     Serial.printf("[MPU] Calibration done. Offsets: %.3f, %.3f, %.3f\n",
                   _offAx, _offAy, _offAz);
@@ -58,7 +57,6 @@ void MPU::readAccel(float &ax, float &ay, float &az)
     int16_t raw_ay = (Wire.read() << 8) | Wire.read();
     int16_t raw_az = (Wire.read() << 8) | Wire.read();
 
-    // Convert to g (assuming ±2g range, default)
     ax = (float)raw_ax / 16384.0f - _offAx;
     ay = (float)raw_ay / 16384.0f - _offAy;
     az = (float)raw_az / 16384.0f - _offAz;

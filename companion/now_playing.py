@@ -30,43 +30,31 @@ from winrt.windows.media.control import (
 )
 from winrt.windows.storage.streams import DataReader
 
-# Windows Media PlaybackStatus enum values
 PLAYBACK_PLAYING = 4
 
-# Canvas size (must match ESP32 config)
 CANVAS_SIZE = 128
-
-# Art region (top portion)
 ART_HEIGHT = 100
-
-# Text bar region (bottom portion)
 TEXT_BAR_HEIGHT = CANVAS_SIZE - ART_HEIGHT
 
-# Scrolling
 SCROLL_PX_PER_FRAME = 10
-SCROLL_PAUSE_FRAMES = 15  # pause at start/end
+SCROLL_PAUSE_FRAMES = 15
 
-# Font sizes
 TITLE_FONT_SIZE = 10
 ARTIST_FONT_SIZE = 8
 
-# HTTP timeouts (seconds)
 HTTP_TIMEOUT = 5
 FRAME_UPLOAD_TIMEOUT = 10
 
-# Preferred CJK fonts (Windows)
 CJK_FONT_CANDIDATES = [
-    "msjh.ttc",       # 微軟正黑體
-    "msyh.ttc",       # 微軟雅黑
-    "yugothm.ttc",    # Yu Gothic
+    "msjh.ttc",
+    "msyh.ttc",
+    "yugothm.ttc",
     "NotoSansCJK-Regular.ttc",
-    "arial.ttf",      # fallback
+    "arial.ttf",
 ]
 
 
 def _find_font(size):
-    """Find a CJK-capable font on the system."""
-    # Try Windows font directory
     windir = os.environ.get("WINDIR", r"C:\Windows")
     font_dir = os.path.join(windir, "Fonts")
 
@@ -75,36 +63,27 @@ def _find_font(size):
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
 
-    # Last resort — Pillow default
+    # Last resort
     try:
         return ImageFont.truetype("arial.ttf", size)
     except OSError:
         return ImageFont.load_default()
 
 
-# Pre-load fonts
 TITLE_FONT = _find_font(TITLE_FONT_SIZE)
 ARTIST_FONT = _find_font(ARTIST_FONT_SIZE)
 
 
 def _text_width(text, font):
-    """Measure text pixel width."""
     bbox = font.getbbox(text)
     return bbox[2] - bbox[0]
 
 
 def _render_frames(art_img, title, artist):
-    """
-    Render all animation frames.
-    Returns list of BMP bytes.
-
-    Layout:
-      - Top 100px: album art (or dark gradient)
-      - Bottom 28px: semi-transparent bar with title + artist
-    """
+    """Render all animation frames as list of BMP bytes."""
     frames = []
 
-    # Prepare art (fit within 128x128, keep aspect ratio, center on dark background)
+    # Prepare art
     if art_img:
         art_img.thumbnail((CANVAS_SIZE, CANVAS_SIZE), Image.LANCZOS)
         if art_img.size != (CANVAS_SIZE, CANVAS_SIZE):
@@ -119,7 +98,7 @@ def _render_frames(art_img, title, artist):
     # Measure text
     title_w = _text_width(title, TITLE_FONT)
     artist_w = _text_width(artist, ARTIST_FONT)
-    max_visible = CANVAS_SIZE - 8  # 4px padding each side
+    max_visible = CANVAS_SIZE - 8
 
     # Determine scroll ranges
     title_scroll = max(0, title_w - max_visible)
@@ -154,21 +133,17 @@ def _render_frames(art_img, title, artist):
 
 
 def _compose_frame(art_img, title, artist, title_offset, artist_offset):
-    """Compose a single 128x128 frame with art + text bar."""
     img = art_img.copy()
 
-    # Darken bottom bar using fast point() instead of per-pixel getpixel/putpixel
     bar_y = ART_HEIGHT
     bar = img.crop((0, bar_y, CANVAS_SIZE, CANVAS_SIZE))
     bar = bar.point(lambda p: p // 3)
     img.paste(bar, (0, bar_y))
 
-    # Draw text
     draw = ImageDraw.Draw(img)
     draw.text((4 - title_offset, bar_y + 2), title, font=TITLE_FONT, fill=(255, 255, 255))
     draw.text((4 - artist_offset, bar_y + 16), artist, font=ARTIST_FONT, fill=(0, 210, 255))
 
-    # Mask text overflow at edges (redraw darkened art edges)
     left_mask = art_img.crop((0, bar_y, 3, CANVAS_SIZE)).point(lambda p: p // 3)
     right_mask = art_img.crop((CANVAS_SIZE - 3, bar_y, CANVAS_SIZE, CANVAS_SIZE)).point(lambda p: p // 3)
     img.paste(left_mask, (0, bar_y))
@@ -178,7 +153,6 @@ def _compose_frame(art_img, title, artist, title_offset, artist_offset):
 
 
 def _to_bmp(img):
-    """Convert PIL Image to BMP bytes."""
     out = io.BytesIO()
     img.save(out, format="BMP")
     return out.getvalue()
@@ -190,10 +164,7 @@ class NowPlayingCompanion:
         self._interval = interval
         self._last_key = ""
         self._running = True
-        # Pending frames waiting to be uploaded
-        self._pending_title = ""
-        self._pending_artist = ""
-        self._pending_frames = None  # list of BMP bytes, or None
+        self._pending_frames = None
         self._uploaded = False
 
     async def run(self):
@@ -215,7 +186,6 @@ class NowPlayingCompanion:
         if session is None:
             return
 
-        # Only push when actively playing
         playback = session.get_playback_info()
         if playback.playback_status != PLAYBACK_PLAYING:
             return
@@ -230,13 +200,11 @@ class NowPlayingCompanion:
         title = unicodedata.normalize("NFC", title)
         artist = unicodedata.normalize("NFC", artist)
 
-        # Deduplicate — detect new track
         key = f"{title}\0{artist}"
         if key != self._last_key:
             self._last_key = key
             print(f"  Now: {artist} - {title}")
 
-            # Read album art
             art_bytes = await self._read_thumbnail(props.thumbnail)
             art_img = None
             if art_bytes:
@@ -245,22 +213,18 @@ class NowPlayingCompanion:
                 except Exception:
                     art_img = None
 
-            # Render frames on PC
             frames = _render_frames(art_img, title, artist)
             print(f"    Rendered {len(frames)} frames")
 
-            # Store pending frames
             self._pending_title = title
             self._pending_artist = artist
             self._pending_frames = frames
             self._uploaded = False
 
-            # Push metadata to ESP32 (no SD operations, no _isUploading)
             ok = self._push_metadata(title, artist, len(frames))
             if not ok:
-                self._last_key = ""  # retry next poll
+                self._last_key = ""
 
-        # Try to upload pending frames if NowPlaying app is active
         if self._pending_frames and not self._uploaded:
             if self._is_now_playing_active():
                 print("    NowPlaying active, uploading frames...")
@@ -271,11 +235,8 @@ class NowPlayingCompanion:
                 else:
                     print("    Upload failed, will retry")
 
-    # -- Windows Media Session ------------------------------------------------
-
     @staticmethod
     async def _read_thumbnail(thumbnail):
-        """Read album art from Windows Media Session thumbnail stream."""
         if thumbnail is None:
             return None
         try:
@@ -291,10 +252,7 @@ class NowPlayingCompanion:
         except Exception:
             return None
 
-    # -- ESP32 HTTP API -------------------------------------------------------
-
     def _push_metadata(self, title, artist, frame_count):
-        """Send track metadata to ESP32 (no frame upload yet)."""
         try:
             r = requests.post(
                 f"http://{self._ip}/api/now-playing",
@@ -314,7 +272,6 @@ class NowPlayingCompanion:
             return False
 
     def _is_now_playing_active(self):
-        """Check if ESP32 is currently running the NowPlaying app."""
         try:
             r = requests.get(
                 f"http://{self._ip}/api/mode",
@@ -331,10 +288,8 @@ class NowPlayingCompanion:
         return False
 
     def _upload_frames(self, frames):
-        """Upload pre-rendered BMP frames to ESP32 SD card."""
         base = f"http://{self._ip}"
 
-        # Upload each frame (with retry)
         for i, bmp in enumerate(frames):
             ok = False
             for attempt in range(3):
@@ -355,7 +310,6 @@ class NowPlayingCompanion:
                 print(f"    Frame {i} upload failed after 3 attempts")
                 return False
 
-        # Signal frames ready
         try:
             requests.post(f"{base}/api/np/ready", timeout=HTTP_TIMEOUT)
         except requests.RequestException as e:
@@ -364,7 +318,6 @@ class NowPlayingCompanion:
         return True
 
     def _set_mode(self, app_index):
-        """Switch ESP32 app mode (0=GIF, 1=NowPlaying)."""
         try:
             requests.post(
                 f"http://{self._ip}/api/mode",

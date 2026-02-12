@@ -2,7 +2,6 @@
 
 UploadManager uploadManager;
 
-// Free function bridge — avoids heavy web_server.h include in other modules
 bool isUploadActive() { return uploadManager.isUploading(); }
 
 bool UploadManager::consumeError()
@@ -122,10 +121,6 @@ void UploadManager::checkTimeout()
     {
         Serial.printf("[Upload] Timeout (%us idle), auto-recovering\n",
                       UPLOAD_TIMEOUT_MS / 1000);
-        // Only clear _isUploading so frame loader can resume.
-        // Do NOT set _uploadError — it belongs to the upload handler
-        // context (async TCP task) and setting it here races with
-        // the response lambda, causing spurious 500 responses.
         _isUploading = false;
         _lastUploadMs = 0;
     }
