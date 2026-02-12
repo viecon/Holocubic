@@ -63,21 +63,48 @@ class App {
 | `Display/` | `Display` | `display` | TFT 渲染、BMP 解碼、overlay |
 | `MPU/` | `MPU` | `mpu` | 加速度計傾斜偵測 (Roll + Pitch) |
 | `GifManager/` | `GifManager` | `gifManager` | SD 卡 GIF CRUD、排序 |
-| `WebServer/` | `HoloWebServer` | `webServer` | REST API、嵌入式網頁 |
+| `WebServer/` | — | — | REST API、嵌入式網頁（見下方詳細架構） |
 
-### Web Server
-- ESPAsyncWebServer with regex routes
-- HTML 以 `PROGMEM` 存放、用 chunked streaming `beginResponse()` 回傳
-- Upload handlers 使用 `char _uploadPath[64]` + `snprintf`（避免 String heap 分配）
-- JSON 用 ArduinoJson v7 (`JsonDocument`)
+### Web Server Architecture
+`lib/WebServer/` 拆分為四個模組，避免 God class：
+
+| File | Type | Instance | Purpose |
+|------|------|----------|---------|
+| `upload_manager.h/.cpp` | `UploadManager` class | `uploadManager` (extern) | 檔案上傳狀態機 + SD 檔案 I/O |
+| `gif_routes.h/.cpp` | `GifRoutes` namespace | — | GIF CRUD + frame/original 上傳路由 |
+| `np_routes.h/.cpp` | `NpRoutes` namespace | — | NowPlaying metadata + frame 上傳路由 |
+| `web_server.h/.cpp` | `HoloWebServer` class | `webServer` (extern) | 協調器：WiFi、mode、HTML 路由 |
+| `web_html.h` | PROGMEM 常數 | — | INDEX_HTML + WIFI_HTML 嵌入式網頁 |
+
+**路由註冊流程**: `HoloWebServer::setupRoutes()` 呼叫 `GifRoutes::registerRoutes(_server)` 和 `NpRoutes::registerRoutes(_server)`，WiFi/mode handlers 以 lambda 內聯在 `setupRoutes()` 中。
+
+**UploadManager** — 共用於 GIF 上傳和 NP frame 上傳：
+- 擁有 `File _file` / `File _originalFile`、`char _path[64]`、volatile 狀態旗標
+- API: `openFile()` / `writeChunk()` / `closeFile()` / `openOriginal()` / `writeOriginalChunk()` / `closeOriginal()`
+- `consumeError()`: 回傳目前 error 狀態並清除（供 response lambda 使用）
+- `isUploadActive()` bridge 函式定義於 `upload_manager.cpp`，供 `NowPlayingApp` extern 呼叫
+
+**GifRoutes** — 9 個 handler 為 static free functions，直接使用 `uploadManager` 全域實例：
+- `_onGifChange` static callback，透過 `GifRoutes::setOnGifChange()` 設定
+- `uploadResponseHandler()` 共用 response lambda（檢查 `uploadManager.consumeError()`）
+
+**NpRoutes** — 4 個 handler 為 static free functions：
+- NP frame upload response lambda 在 `registerRoutes()` 中內聯定義
+- 使用 `nowPlayingApp` extern 實例
+
+**HoloWebServer** — 瘦身協調器：
+- `web_server.h` 不包含 `<ArduinoJson.h>`（避免傳遞依賴）
+- `isUploading()` 委派至 `uploadManager.isUploading()`
+- `checkUploadTimeout()` 委派至 `uploadManager.checkTimeout()`
+- `setOnGifChange()` 委派至 `GifRoutes::setOnGifChange()`
 
 #### Upload Error Recovery
-- Upload handler response lambda 捕獲 `this`，根據 `_uploadError` 回傳 500 或 200
-- `_fileOpen` / `_origFileOpen` (`volatile bool`) 追蹤檔案開啟狀態
+- Upload handler response lambda 使用 `uploadManager.consumeError()` 回傳 500 或 200
+- `_fileOpen` / `_origFileOpen` (`volatile bool`) 在 UploadManager 中追蹤檔案開啟狀態
 - Write error 只設 `_uploadError=true`，**不**在中途 close file（由 `final` 區塊統一處理）
-- `checkUploadTimeout()`：從 main loop 呼叫，僅設 flag，**絕不**直接 close file
+- `checkTimeout()`：從 main loop 呼叫，僅設 flag，**絕不**直接 close file
   - 原因：upload handler 在 async TCP task 中執行，main loop 在 Arduino task，跨 task close file 會造成 heap corruption
-- `abortUpload()`：僅從 Web API route (同 task context) 呼叫，可安全 close file
+- `abort()`：僅從 Web API route (同 task context) 呼叫，可安全 close file
 - `UPLOAD_TIMEOUT_MS` (30s)：超時自動清除 `_isUploading` 狀態
 
 ### SD Card File Structure

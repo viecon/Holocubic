@@ -470,7 +470,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
                         <path d="M3 15v4a2 2 0 002 2h14a2 2 0 002-2v-4"/>
                     </svg>
                     <p>Drop GIF file here or click to browse</p>
-                    <p class="hint">Supports animated GIF up to 100 frames</p>
                 </div>
                 <input type="file" id="fileInput" accept=".gif,image/gif">
             </div>
@@ -1113,7 +1112,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
                     </div>
                     <div class="gif-info">
                         <div class="gif-name">${gif.name}</div>
-                        <div class="gif-meta">${gif.frameCount} frames 繚 ${gif.width}?${gif.height}</div>
+                        <div class="gif-meta">${gif.frameCount} frames ${gif.width}x${gif.height}</div>
                     </div>
                     <div class="gif-actions">
                         <button class="btn btn-icon" onclick="showPreview('${gif.name}')" title="Preview">
