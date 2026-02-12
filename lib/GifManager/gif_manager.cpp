@@ -306,29 +306,34 @@ bool GifManager::deleteDirectory(const String &path)
     File dir = SD.open(path);
     if (!dir || !dir.isDirectory())
     {
+        Serial.printf("[GifManager] deleteDir: cannot open %s\n", path.c_str());
         return false;
     }
 
+    char entryPath[64];
     File entry;
     while ((entry = dir.openNextFile()))
     {
-        // entry.name() returns full path on ESP32
-        const char *entryPath = entry.name();
+        // Copy path before close — entry.name() pointer invalidates after close()
+        snprintf(entryPath, sizeof(entryPath), "%s/%s", path.c_str(), entry.name());
+        bool isDir = entry.isDirectory();
+        entry.close();
 
-        if (entry.isDirectory())
+        if (isDir)
         {
-            entry.close();
             deleteDirectory(entryPath);
         }
         else
         {
-            entry.close();
-            SD.remove(entryPath);
+            bool ok = SD.remove(entryPath);
+            Serial.printf("[GifManager]   rm %s -> %s\n", entryPath, ok ? "OK" : "FAIL");
         }
     }
     dir.close();
 
-    return SD.rmdir(path);
+    bool ok = SD.rmdir(path);
+    Serial.printf("[GifManager] rmdir %s -> %s\n", path.c_str(), ok ? "OK" : "FAIL");
+    return ok;
 }
 
 bool GifManager::deleteGif(const String &name)
