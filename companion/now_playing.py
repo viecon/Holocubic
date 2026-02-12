@@ -104,17 +104,16 @@ def _render_frames(art_img, title, artist):
     """
     frames = []
 
-    # Prepare art (100x128, centered)
+    # Prepare art (fit within 128x128, keep aspect ratio, center on dark background)
     if art_img:
-        w, h = art_img.size
-        if w != h:
-            s = min(w, h)
-            left = (w - s) // 2
-            top = (h - s) // 2
-            art_img = art_img.crop((left, top, left + s, top + s))
-        art_img = art_img.resize((CANVAS_SIZE, CANVAS_SIZE), Image.LANCZOS)
+        art_img.thumbnail((CANVAS_SIZE, CANVAS_SIZE), Image.LANCZOS)
+        if art_img.size != (CANVAS_SIZE, CANVAS_SIZE):
+            bg = Image.new("RGB", (CANVAS_SIZE, CANVAS_SIZE), (20, 20, 30))
+            x = (CANVAS_SIZE - art_img.width) // 2
+            y = (CANVAS_SIZE - art_img.height) // 2
+            bg.paste(art_img, (x, y))
+            art_img = bg
     else:
-        # Dark background when no art
         art_img = Image.new("RGB", (CANVAS_SIZE, CANVAS_SIZE), (20, 20, 30))
 
     # Measure text

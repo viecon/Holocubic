@@ -47,7 +47,7 @@ void NowPlayingApp::loop()
 
     // Frame animation
     unsigned long now = millis();
-    int delay = NP_FRAME_DELAY_MS;
+    unsigned long delay = NP_FRAME_DELAY_MS;
     if (_currentFrame == 0 || _currentFrame == _info.frameCount - 1)
         delay *= 5;
 
@@ -88,6 +88,8 @@ void NowPlayingApp::playFrame()
     if (isUploadActive())
         return;
 
+    _currentFrame = (_currentFrame + 1) % _info.frameCount;
+
     char path[32];
     snprintf(path, sizeof(path), "%s/%d.bmp", NP_DIR, _currentFrame);
 
@@ -95,10 +97,6 @@ void NowPlayingApp::playFrame()
     {
         display.swapAndRender();
     }
-
-    _currentFrame++;
-    if (_currentFrame >= _info.frameCount)
-        _currentFrame = 0;
 }
 
 void NowPlayingApp::renderIdle()
