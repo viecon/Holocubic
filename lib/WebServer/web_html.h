@@ -51,15 +51,28 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         }
         
         header {
-            text-align: center;
-            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--bg-tertiary);
         }
         
         h1 {
-            font-size: 32px;
-            font-weight: 600;
+            font-size: 28px;
+            font-weight: 700;
             letter-spacing: -0.5px;
-            margin-bottom: 8px;
+            margin-bottom: 2px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin: 32px 0 12px 4px;
         }
         
         .subtitle {
@@ -434,30 +447,38 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             h1 {
                 font-size: 24px;
             }
-            
-            .card-header {
-                flex-direction: column;
-                gap: 12px;
-                align-items: flex-start;
-            }
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Holocubic</h1>
-            <p class="subtitle">GIF Manager 繚 <a href="/wifi" style="color:var(--accent);text-decoration:none;">WiFi Settings</a></p>
+            <div>
+                <h1>Holocubic</h1>
+                <p class="subtitle">Device Manager</p>
+            </div>
+            <a href="/wifi" class="btn btn-secondary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M5 12.55a11 11 0 0114.08 0"/>
+                    <path d="M1.42 9a16 16 0 0121.16 0"/>
+                    <path d="M8.53 16.11a6 6 0 016.95 0"/>
+                    <line x1="12" y1="20" x2="12.01" y2="20"/>
+                </svg>
+                WiFi Setup
+            </a>
         </header>
+        
+        <div class="section-title">System</div>
         
         <div class="card">
             <div class="card-header">
-                <span class="card-title">App Mode</span>
+                <span class="card-title">Current App</span>
                 <span class="subtitle" id="currentApp">--</span>
             </div>
             <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap;" id="appButtons">
             </div>
         </div>
+        
+        <div class="section-title">Media Library</div>
         
         <div class="card">
             <div class="card-header">
@@ -1445,9 +1466,12 @@ const char WIFI_HTML[] PROGMEM = R"rawliteral(
         .msg.error { display: block; background: #fff0f0; color: var(--danger); }
         .msg.success { display: block; background: #f0fff4; color: var(--success); }
         .back {
-            display: block; text-align: center; margin-top: 16px;
+            display: flex; align-items: center; justify-content: center; margin-top: 24px;
             color: var(--accent); text-decoration: none; font-size: 14px;
+            transition: opacity 0.2s;
         }
+        .back:hover { opacity: 0.8; }
+        .back svg { width: 16px; height: 16px; }
     </style>
 </head>
 <body>
@@ -1473,7 +1497,12 @@ const char WIFI_HTML[] PROGMEM = R"rawliteral(
         </form>
 
         <div class="msg" id="msg"></div>
-        <a href="/" class="back">??Back to GIF Manager</a>
+        <a href="/" class="back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to GIF Manager
+        </a>
     </div>
 
     <script>
@@ -1488,7 +1517,7 @@ const char WIFI_HTML[] PROGMEM = R"rawliteral(
                     st.textContent = 'Connected to "' + (data.ssid || '?') + '" (' + data.ip + ')';
                 } else {
                     dot.className = 'dot orange';
-                    st.textContent = 'AP Mode (' + data.ip + ') ??not connected';
+                    st.textContent = 'AP Mode (' + data.ip + ') - Not Connected';
                 }
                 if (data.ssid) document.getElementById('ssid').value = data.ssid;
             } catch (e) {

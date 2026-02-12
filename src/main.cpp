@@ -94,7 +94,6 @@ void loop()
       newIdx = 0;
     if (newIdx < 0)
       newIdx = APP_COUNT - 1;
-    switchApp(newIdx);
   }
 
   if (tiltDir != 0)
