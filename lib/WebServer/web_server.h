@@ -17,7 +17,7 @@ public:
     void setOnModeChange(void (*callback)(int));
     void setAppInfo(App **apps, const int *appCount, int *currentIndex);
 
-    String getLocalIP();
+    const char *getLocalIP();
     bool isUploading() const;
     void checkUploadTimeout();
 
@@ -28,6 +28,7 @@ private:
     App **_apps;
     const int *_appCount;
     int *_currentIndex;
+    char _ipBuf[16];
 
     void setupRoutes();
 };

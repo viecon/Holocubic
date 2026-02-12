@@ -1,79 +1,23 @@
 #include "gif_app.h"
 #include "display.h"
+#include "frame_loader.h"
 #include "web_server.h"
-#include "mpu.h"
 #include <WiFi.h>
 
 GifApp gifApp;
-
-TaskHandle_t GifApp::_loaderTask = NULL;
-volatile bool GifApp::_frameLoaded = false;
-volatile bool GifApp::_loaderBusy = false;
-char GifApp::_nextFramePath[64] = {0};
-
-static char _cachedTimeStr[6] = "--:--";
-static unsigned long _lastTimeUpdate = 0;
-static bool _timeSynced = false;
-
-static const char *getTimeString()
-{
-    unsigned long now = millis();
-    unsigned long interval = _timeSynced ? 10000 : 1000;
-    if (now - _lastTimeUpdate >= interval)
-    {
-        _lastTimeUpdate = now;
-        struct tm timeinfo;
-        if (getLocalTime(&timeinfo, 10))
-        {
-            strftime(_cachedTimeStr, sizeof(_cachedTimeStr), "%H:%M", &timeinfo);
-            _timeSynced = true;
-        }
-    }
-    return _cachedTimeStr;
-}
 
 GifApp::GifApp()
     : _currentIndex(0), _currentFrame(0), _lastFrameTime(0),
       _needRefresh(false)
 {
     _currentGif.valid = false;
-}
-
-void GifApp::frameLoaderTask(void *param)
-{
-    for (;;)
-    {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-        if (webServer.isUploading())
-            continue;
-
-        _loaderBusy = true;
-        if (display.decodeBmpToCanvas(_nextFramePath))
-        {
-            _frameLoaded = true;
-        }
-        _loaderBusy = false;
-    }
+    _nextFramePath[0] = '\0';
 }
 
 void GifApp::onEnter()
 {
     Serial.println("[GifApp] Enter");
-
-    if (_loaderTask == NULL)
-    {
-        xTaskCreatePinnedToCore(
-            frameLoaderTask,
-            "FrameLoader",
-            4096,
-            NULL,
-            1,
-            &_loaderTask,
-            0);
-        Serial.println("[GifApp] Frame loader started on Core 0");
-    }
-
+    frameLoader.begin();
     loadGif();
 }
 
@@ -96,7 +40,7 @@ void GifApp::loop()
             _currentIndex = 0;
             display.clear();
             display.showMessage("No GIFs");
-            display.showIP(webServer.getLocalIP().c_str());
+            display.showIP(webServer.getLocalIP());
         }
         else
         {
@@ -107,9 +51,7 @@ void GifApp::loop()
     }
 
     if (_currentGif.valid && !webServer.isUploading())
-    {
         playFrame();
-    }
 }
 
 bool GifApp::onTilt(int direction)
@@ -125,7 +67,7 @@ bool GifApp::onTilt(int direction)
         _currentIndex = count - 1;
 
     loadGif();
-    Serial.printf("[GifApp] Switched to GIF %d: %s\n", _currentIndex, _currentGif.name.c_str());
+    Serial.printf("[GifApp] Switched to GIF %d: %s\n", _currentIndex, _currentGif.name);
     return true;
 }
 
@@ -138,8 +80,7 @@ void GifApp::loadGif()
 {
     Serial.printf("[GifApp] Loading GIF index %d...\n", _currentIndex);
 
-    while (_loaderBusy)
-        delay(1);
+    frameLoader.waitIdle();
 
     if (!gifManager.getGifInfoByIndex(_currentIndex, _currentGif))
     {
@@ -150,34 +91,24 @@ void GifApp::loadGif()
 
     _currentFrame = 0;
     _lastFrameTime = millis();
-    _frameLoaded = false;
 
     snprintf(_nextFramePath, sizeof(_nextFramePath), "/gifs/%s/%d.bmp",
-             _currentGif.name.c_str(), _currentFrame);
-
-    if (_loaderTask != NULL)
-    {
-        xTaskNotifyGive(_loaderTask);
-    }
-    else
-    {
-        if (display.decodeBmpToCanvas(_nextFramePath))
-            _frameLoaded = true;
-    }
+             _currentGif.name, _currentFrame);
+    frameLoader.requestLoad(_nextFramePath);
 
     Serial.printf("[GifApp] Loaded: %s (%d frames, %dx%d, %dms)\n",
-                  _currentGif.name.c_str(), _currentGif.frameCount,
+                  _currentGif.name, _currentGif.frameCount,
                   _currentGif.width, _currentGif.height, _currentGif.defaultDelay);
 }
 
 void GifApp::playFrame()
 {
     unsigned long now = millis();
-    if (now - _lastFrameTime < _currentGif.defaultDelay || !_frameLoaded)
+    if (now - _lastFrameTime < _currentGif.defaultDelay || !frameLoader.isLoaded())
         return;
 
     _lastFrameTime = now;
-    _frameLoaded = false;
+    frameLoader.consumeLoaded();
 
     showOverlay();
     display.swapAndRender();
@@ -187,17 +118,15 @@ void GifApp::playFrame()
         _currentFrame = 0;
 
     snprintf(_nextFramePath, sizeof(_nextFramePath), "/gifs/%s/%d.bmp",
-             _currentGif.name.c_str(), _currentFrame);
-    xTaskNotifyGive(_loaderTask);
+             _currentGif.name, _currentFrame);
+    frameLoader.requestLoad(_nextFramePath);
 }
-
-extern bool overlayVisible;
 
 void GifApp::showOverlay()
 {
-    if (!overlayVisible)
+    if (!isOverlayVisible())
         return;
     bool wifi = (WiFi.status() == WL_CONNECTED);
-    display.drawOverlay(wifi, getTimeString(),
+    display.drawOverlay(wifi, display.getTimeString(),
                         _currentGif.name, _currentIndex + 1, gifManager.getGifCount());
 }

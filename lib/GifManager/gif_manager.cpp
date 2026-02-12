@@ -165,7 +165,7 @@ bool GifManager::loadGifConfig(const String &name, GifInfo &info)
         return false;
     }
 
-    info.name = name;
+    strlcpy(info.name, name.c_str(), sizeof(info.name));
     info.frameCount = doc["frameCount"] | 0;
     info.width = doc["width"] | CANVAS_WIDTH;
     info.height = doc["height"] | CANVAS_HEIGHT;
@@ -222,7 +222,7 @@ bool GifManager::createGif(const String &name, int frameCount, int width, int he
     }
 
     GifInfo info;
-    info.name = name;
+    strlcpy(info.name, name.c_str(), sizeof(info.name));
     info.frameCount = frameCount;
     info.width = width;
     info.height = height;

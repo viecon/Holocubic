@@ -23,13 +23,17 @@ public:
 
     bool decodeBmpToCanvas(const char *filename);
     void drawOverlay(bool wifiConnected, const char *timeStr,
-                     const String &gifName, int current, int total);
+                     const char *gifName, int current, int total);
+    const char *getTimeString();
 
 private:
     Adafruit_ST7735 _tft;
     GFXcanvas16 *_canvas[2];
     int _frontIdx;
     uint8_t _rowBuf[MAX_ROW_BUFFER];
+    char _timeStr[6];
+    unsigned long _lastTimeUpdate;
+    bool _timeSynced;
 
     void renderCanvas();
 };

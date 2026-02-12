@@ -4,10 +4,12 @@
 Display display;
 
 Display::Display()
-    : _tft(TFT_CS, TFT_DC, TFT_RST), _frontIdx(0)
+    : _tft(TFT_CS, TFT_DC, TFT_RST), _frontIdx(0),
+      _lastTimeUpdate(0), _timeSynced(false)
 {
     _canvas[0] = nullptr;
     _canvas[1] = nullptr;
+    strcpy(_timeStr, "--:--");
 }
 
 void Display::begin()
@@ -216,7 +218,7 @@ static void dimCanvasRegion(uint16_t *fb, int y, int h, int w)
 }
 
 void Display::drawOverlay(bool wifiConnected, const char *timeStr,
-                          const String &gifName, int current, int total)
+                          const char *gifName, int current, int total)
 {
     int backIdx = 1 - _frontIdx;
     if (!_canvas[backIdx])
@@ -254,17 +256,17 @@ void Display::drawOverlay(bool wifiConnected, const char *timeStr,
     _canvas[backIdx]->setCursor(2, bottomY + 4);
     _canvas[backIdx]->setTextColor(ST77XX_CYAN);
     char displayName[16];
-    size_t nameLen = gifName.length();
+    size_t nameLen = strlen(gifName);
     if (nameLen > 14)
     {
-        memcpy(displayName, gifName.c_str(), 12);
+        memcpy(displayName, gifName, 12);
         displayName[12] = '.';
         displayName[13] = '.';
         displayName[14] = '\0';
     }
     else
     {
-        memcpy(displayName, gifName.c_str(), nameLen + 1);
+        memcpy(displayName, gifName, nameLen + 1);
     }
     _canvas[backIdx]->print(displayName);
 
@@ -274,4 +276,21 @@ void Display::drawOverlay(bool wifiConnected, const char *timeStr,
     int pw = posLen * 6;
     _canvas[backIdx]->setCursor(CANVAS_WIDTH - pw - 2, bottomY + 4);
     _canvas[backIdx]->print(posStr);
+}
+
+const char *Display::getTimeString()
+{
+    unsigned long now = millis();
+    unsigned long interval = _timeSynced ? 10000 : 1000;
+    if (now - _lastTimeUpdate >= interval)
+    {
+        _lastTimeUpdate = now;
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo, 10))
+        {
+            strftime(_timeStr, sizeof(_timeStr), "%H:%M", &timeinfo);
+            _timeSynced = true;
+        }
+    }
+    return _timeStr;
 }

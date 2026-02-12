@@ -28,12 +28,12 @@ public:
 
 private:
     NowPlayingInfo _info;
-
     int _currentFrame;
     unsigned long _lastFrameTime;
     bool _needRedraw;
+    bool _frameRequested;
+    char _nextFramePath[32];
 
-    void playFrame();
     void renderIdle();
 };
 

@@ -1,26 +1,27 @@
 #include "now_playing_app.h"
 #include "display.h"
+#include "frame_loader.h"
 #include "config.h"
-#include <SD.h>
 
 NowPlayingApp nowPlayingApp;
-
-extern bool isUploadActive();
 
 static const uint16_t COLOR_GRAY = 0x7BEF;
 
 NowPlayingApp::NowPlayingApp()
-    : _currentFrame(0), _lastFrameTime(0), _needRedraw(true)
+    : _currentFrame(0), _lastFrameTime(0), _needRedraw(true), _frameRequested(false)
 {
     memset(&_info, 0, sizeof(_info));
+    _nextFramePath[0] = '\0';
 }
 
 void NowPlayingApp::onEnter()
 {
     Serial.println("[NowPlaying] Enter");
+    frameLoader.begin();
     _currentFrame = 0;
     _lastFrameTime = millis();
     _needRedraw = true;
+    _frameRequested = false;
 }
 
 void NowPlayingApp::onExit()
@@ -32,7 +33,6 @@ void NowPlayingApp::loop()
 {
     if (!_info.framesReady || _info.frameCount <= 0)
     {
-        // No frames — show idle screen once
         if (_needRedraw)
         {
             _needRedraw = false;
@@ -42,16 +42,26 @@ void NowPlayingApp::loop()
         return;
     }
 
-    // Frame animation
     unsigned long now = millis();
-    unsigned long delay = NP_FRAME_DELAY_MS;
+    unsigned long frameDelay = NP_FRAME_DELAY_MS;
     if (_currentFrame == 0 || _currentFrame == _info.frameCount - 1)
-        delay *= 5;
+        frameDelay *= 5;
 
-    if (now - _lastFrameTime >= delay)
+    if (!_frameRequested)
+    {
+        snprintf(_nextFramePath, sizeof(_nextFramePath), "%s/%d.bmp", NP_DIR, _currentFrame);
+        frameLoader.requestLoad(_nextFramePath);
+        _frameRequested = true;
+    }
+
+    if (frameLoader.isLoaded() && now - _lastFrameTime >= frameDelay)
     {
         _lastFrameTime = now;
-        playFrame();
+        frameLoader.consumeLoaded();
+        display.swapAndRender();
+
+        _currentFrame = (_currentFrame + 1) % _info.frameCount;
+        _frameRequested = false;
     }
 }
 
@@ -77,23 +87,8 @@ void NowPlayingApp::setFramesReady()
     _info.framesReady = true;
     _currentFrame = 0;
     _lastFrameTime = millis();
+    _frameRequested = false;
     Serial.printf("[NowPlaying] Frames ready (%d)\n", _info.frameCount);
-}
-
-void NowPlayingApp::playFrame()
-{
-    if (isUploadActive())
-        return;
-
-    _currentFrame = (_currentFrame + 1) % _info.frameCount;
-
-    char path[32];
-    snprintf(path, sizeof(path), "%s/%d.bmp", NP_DIR, _currentFrame);
-
-    if (display.decodeBmpToCanvas(path))
-    {
-        display.swapAndRender();
-    }
 }
 
 void NowPlayingApp::renderIdle()

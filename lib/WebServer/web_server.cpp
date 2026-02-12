@@ -15,6 +15,7 @@ HoloWebServer::HoloWebServer(uint16_t port)
     : _server(port), _onModeChange(nullptr),
       _apps(nullptr), _appCount(nullptr), _currentIndex(nullptr)
 {
+    _ipBuf[0] = '\0';
 }
 
 void HoloWebServer::begin()
@@ -41,13 +42,13 @@ void HoloWebServer::setAppInfo(App **apps, const int *appCount, int *currentInde
     _currentIndex = currentIndex;
 }
 
-String HoloWebServer::getLocalIP()
+const char *HoloWebServer::getLocalIP()
 {
-    if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
-    {
-        return WiFi.softAPIP().toString();
-    }
-    return WiFi.localIP().toString();
+    IPAddress ip = (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA)
+                       ? WiFi.softAPIP()
+                       : WiFi.localIP();
+    snprintf(_ipBuf, sizeof(_ipBuf), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    return _ipBuf;
 }
 
 bool HoloWebServer::isUploading() const

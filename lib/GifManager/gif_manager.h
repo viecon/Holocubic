@@ -8,7 +8,7 @@
 
 struct GifInfo
 {
-    String name;
+    char name[MAX_GIF_NAME_LEN + 1];
     int frameCount;
     int width;
     int height;

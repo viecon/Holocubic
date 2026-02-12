@@ -23,13 +23,8 @@ private:
     unsigned long _lastFrameTime;
     GifInfo _currentGif;
     bool _needRefresh;
+    char _nextFramePath[64];
 
-    static TaskHandle_t _loaderTask;
-    static volatile bool _frameLoaded;
-    static volatile bool _loaderBusy;
-    static char _nextFramePath[64];
-
-    static void frameLoaderTask(void *param);
     void loadGif();
     void playFrame();
     void showOverlay();
