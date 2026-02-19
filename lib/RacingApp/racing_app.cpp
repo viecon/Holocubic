@@ -30,7 +30,7 @@ void RacingApp::resetGame()
     _roadCenterX       = 64.0f;
     _curvature         = 0;
     _targetCurvature   = 0;
-    _curvatureChangeMs = 0;
+    _curvatureChangeMs = millis(); // Delay first curve so game starts straight
     _speed             = 55.0f;
     _distance          = 0;
     _score             = 0;

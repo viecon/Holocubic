@@ -38,8 +38,7 @@ void FishTankApp::initFish()
     {
         _fish[i].x = random(10, 118);
         _fish[i].y = random(10, 90);
-        // Random speed between 0.5 and 2.0 px/frame
-        float speed = 0.15f + (random(70) / 100.0f);
+        float speed = 0.15f + (random(70) / 100.0f); // 0.15 to 0.85 px/frame
         _fish[i].vx = (random(2) == 0 ? 1 : -1) * speed;
         _fish[i].vy = (random(2) == 0 ? 1 : -1) * (speed * 0.4f);
         _fish[i].color = FISH_COLORS[i % 4];
@@ -97,7 +96,7 @@ void FishTankApp::updateBubbles(float dt)
         // Reset bubble when it reaches top
         if (_bubbles[i].y < 2)
         {
-            _bubbles[i].y = 128;
+            _bubbles[i].y = 127; // Respawn at bottom (canvas valid range: 0-127)
             _bubbles[i].x = random(4, 124);
             _bubbles[i].speed = 0.3f + (random(70) / 100.0f);
         }
@@ -146,7 +145,7 @@ void FishTankApp::drawPlants(GFXcanvas16 *canvas)
     for (int i = 0; i < NUM_PLANTS; i++)
     {
         int px = PLANT_X[i];
-        int baseY = 128;
+        int baseY = 127; // Bottom of canvas (valid range: 0-127)
         int height = 18 + (i * 4);
 
         // Draw stem

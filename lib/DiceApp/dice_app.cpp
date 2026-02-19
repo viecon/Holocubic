@@ -45,9 +45,10 @@ void DiceApp::onExit()
 
 void DiceApp::startRoll()
 {
+    unsigned long now = millis();
     _state = DICE_ROLLING;
-    _rollStartMs = millis();
-    _lastFrameMs = millis();
+    _rollStartMs = now;
+    _lastFrameMs = now;
     _rollInterval = 60; // Start fast
     _result = random(1, 7);
     Serial.printf("[DiceApp] Roll started, result will be %d\n", _result);
