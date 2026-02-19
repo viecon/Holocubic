@@ -5,7 +5,7 @@ MPU mpu;
 
 MPU::MPU()
     : _offAx(0), _offAy(0), _offAz(0), _lastTilt(TILT_NEUTRAL), _lastPitch(PITCH_NEUTRAL),
-      _lastSwitchMs(0), _lastPitchMs(0)
+      _lastSwitchMs(0), _lastPitchMs(0), _lastShakeMs(0), _smoothedTilt(0)
 {
 }
 
@@ -147,3 +147,59 @@ int MPU::checkPitchChange()
 
     return 0;
 }
+
+float MPU::getAccelMagnitude()
+{
+    float ax, ay, az;
+    readAccel(ax, ay, az);
+    return sqrtf(ax * ax + ay * ay + az * az);
+}
+
+bool MPU::checkShake()
+{
+    unsigned long now = millis();
+    
+    // Cooldown period after last shake detection
+    if (now - _lastShakeMs < 500)
+    {
+        return false;
+    }
+    
+    float magnitude = getAccelMagnitude();
+    
+    // Shake threshold: detect sudden acceleration above 2.5g
+    // Normal gravity is ~1.0g, so shake will spike significantly higher
+    if (magnitude > 2.5f)
+    {
+        _lastShakeMs = now;
+        Serial.printf("[MPU] Shake detected! Magnitude: %.2f\n", magnitude);
+        return true;
+    }
+    
+    return false;
+}
+
+float MPU::getTiltPosition()
+{
+    float roll = readRollDeg();
+    
+    // Map roll angle to normalized position (-1.0 to +1.0)
+    // Use wider range for better sensitivity: -45° to +45°
+    float position = roll / 45.0f;
+    
+    // Clamp to valid range
+    if (position < -1.0f) position = -1.0f;
+    if (position > 1.0f) position = 1.0f;
+    
+    // Apply smoothing with exponential moving average (alpha = 0.3)
+    _smoothedTilt = 0.3f * position + 0.7f * _smoothedTilt;
+    
+    // Apply dead zone around center to prevent drift
+    if (fabsf(_smoothedTilt) < 0.1f)
+    {
+        _smoothedTilt = 0.0f;
+    }
+    
+    return _smoothedTilt;
+}
+

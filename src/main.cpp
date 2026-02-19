@@ -11,8 +11,11 @@
 #include "app.h"
 #include "gif_app.h"
 #include "now_playing_app.h"
+#include "fish_tank_app.h"
+#include "dice_app.h"
+#include "racing_app.h"
 
-App *apps[] = {&gifApp, &nowPlayingApp};
+App *apps[] = {&gifApp, &nowPlayingApp, &fishTankApp, &diceApp, &racingApp};
 extern const int APP_COUNT = sizeof(apps) / sizeof(apps[0]);
 int currentAppIndex = 0;
 
@@ -79,21 +82,10 @@ void loop()
 {
   static unsigned long lastMpuCheck = 0;
   int tiltDir = 0;
-  int pitchDir = 0;
   if (millis() - lastMpuCheck >= 50)
   {
     lastMpuCheck = millis();
     tiltDir = mpu.checkTiltChange();
-    pitchDir = mpu.checkPitchChange();
-  }
-
-  if (pitchDir != 0)
-  {
-    int newIdx = currentAppIndex + pitchDir;
-    if (newIdx >= APP_COUNT)
-      newIdx = 0;
-    if (newIdx < 0)
-      newIdx = APP_COUNT - 1;
   }
 
   if (tiltDir != 0)

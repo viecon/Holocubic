@@ -27,6 +27,9 @@ public:
     void calibrate(int samples = 300);
     int checkTiltChange();
     int checkPitchChange();
+    bool checkShake();
+    float getTiltPosition();
+    float getAccelMagnitude();
 
 private:
     float _offAx, _offAy, _offAz;
@@ -34,6 +37,8 @@ private:
     PitchState _lastPitch;
     unsigned long _lastSwitchMs;
     unsigned long _lastPitchMs;
+    unsigned long _lastShakeMs;
+    float _smoothedTilt;
 
     void readAccel(float &ax, float &ay, float &az);
     float readRollDeg();
