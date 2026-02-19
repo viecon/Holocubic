@@ -35,13 +35,31 @@ class App {
 
 | Module | Class | Instance | Purpose |
 |--------|-------|----------|---------|
-| `App/` | `App` | — | 抽象基類 |
-| `GifApp/` | `GifApp` | `gifApp` | GIF 播放 + 雙核 pipeline |
+| `App/` | `App` | — | 抽象基類（含 overlay 管理） |
+| `GifApp/` | `GifApp` | `gifApp` | GIF 播放，透過 FrameLoader 雙核 pipeline |
 | `NowPlayingApp/` | `NowPlayingApp` | `nowPlayingApp` | 音樂正在播放 mini frame player |
+| `DiceApp/` | `DiceApp` | `diceApp` | 骰子動畫，傾斜觸發，DICE_IDLE/DICE_ROLLING/DICE_RESULT |
+| `FishTankApp/` | `FishTankApp` | `fishTankApp` | 動態魚缸，4 魚 + 8 泡泡 + 3 植物，float 物理 |
+| `RacingApp/` | `RacingApp` | `racingApp` | 透視公路賽車，MPU 操控，RACING_PLAYING/RACING_GAMEOVER |
 
-### Dual-Core Pipeline (GifApp)
-- **Core 0**: 背景任務 `frameLoaderTask` — 從 SD 解碼 BMP 到 back buffer
+```cpp
+// main.cpp
+App *apps[] = {&gifApp, &nowPlayingApp, &fishTankApp, &diceApp, &racingApp};
+```
+
+### App Base Class — Overlay Management
+`App` 基類內建 overlay 顯示管理，`main.cpp` 在 loop 中呼叫 `apps[currentAppIndex]->updateOverlay()`，在 `switchApp()` 時呼叫 `->triggerOverlay()`：
+
+```cpp
+void triggerOverlay();       // 設 _overlayVisible=true，記錄時間戳
+void updateOverlay();        // 超過 OVERLAY_SHOW_MS (2500ms) 後清除
+bool isOverlayVisible() const;
+```
+
+### Dual-Core Pipeline (GifApp + FrameLoader)
+- **Core 0**: `FrameLoader` 背景任務 `"FrameLoader"` — 從 SD 解碼 BMP，檢查 `uploadManager.isUploading()` 後再讀取
 - **Core 1**: Arduino `loop()` — 渲染 TFT、處理傾斜、Web server
+- GifApp 在 `onEnter()` 呼叫 `frameLoader.begin()`，用 `frameLoader.requestLoad()` / `isLoaded()` / `consumeLoaded()` 驅動 pipeline
 
 ### NowPlayingApp
 - PC companion (`companion/now_playing.py`) 偵測 Windows SMTC 正在播放的音樂
@@ -63,7 +81,23 @@ class App {
 | `Display/` | `Display` | `display` | TFT 渲染、BMP 解碼、overlay |
 | `MPU/` | `MPU` | `mpu` | 加速度計傾斜偵測 (Roll + Pitch) |
 | `GifManager/` | `GifManager` | `gifManager` | SD 卡 GIF CRUD、排序 |
+| `FrameLoader/` | `FrameLoader` | `frameLoader` | Core 0 背景 BMP 載入任務（獨立 lib） |
+| `WiFiManager/` | `WiFiManager` | `wifiManager` | WiFi 連線：STA 模式 + AP fallback |
 | `WebServer/` | — | — | REST API、嵌入式網頁（見下方詳細架構） |
+
+### FrameLoader (`lib/FrameLoader/`)
+獨立 lib 模組，不嵌在 GifApp 內：
+- `begin()` — 在 Core 0 生成任務 `"FrameLoader"` (stack 4096, priority 1)
+- `requestLoad(path)` — 請求載入指定 BMP 路徑
+- `isLoaded()` / `isBusy()` — 查詢狀態
+- `consumeLoaded()` — 消費已載入的幀（清除 `_frameLoaded`）
+- `waitIdle()` — 等待任務空閒
+- 每次載入前檢查 `uploadManager.isUploading()`，若上傳中則跳過
+
+### WiFiManager (`lib/WiFiManager/`)
+- `begin()` — 讀取 `/wifi.json`，嘗試 STA 模式，失敗時回退 AP 模式 (SSID: "Holocubic", pass: "12345678")
+- `isConnected()` — 查詢連線狀態
+- `setup()` 中呼叫 `wifiManager.begin()`
 
 ### Web Server Architecture
 `lib/WebServer/` 拆分為四個模組，避免 God class：
@@ -97,6 +131,9 @@ class App {
 - `isUploading()` 委派至 `uploadManager.isUploading()`
 - `checkUploadTimeout()` 委派至 `uploadManager.checkTimeout()`
 - `setOnGifChange()` 委派至 `GifRoutes::setOnGifChange()`
+- `setOnModeChange(callback)` — `POST /api/mode` 收到時以 app index 呼叫 callback
+- `setAppInfo(apps, &APP_COUNT, &currentAppIndex)` — 提供 app 清單供 mode API 使用
+- `getLocalIP()` — 回傳 IP 字串（供 overlay 顯示）
 
 #### Upload Error Recovery
 - Upload handler response lambda 使用 `uploadManager.consumeError()` 回傳 500 或 200
@@ -138,8 +175,8 @@ class App {
 ### Concurrency Safety (Critical)
 - ESPAsyncWebServer upload callback 在 async TCP task 中執行（非 Arduino loop task）
 - main loop 中的 `checkUploadTimeout()` **只能設 flag**，不能操作 File 物件
-- `volatile` 修飾跨 task 共享的布林值 (`_fileOpen`, `_origFileOpen`)
-- SD 卡存取衝突：上傳時 `_isUploading=true`，GifApp frame loader 會跳過 SD 讀取
+- `volatile` 修飾跨 task 共享的布林值 (`_fileOpen`, `_origFileOpen`, FrameLoader 的 `_frameLoaded`, `_loaderBusy`)
+- SD 卡存取衝突：上傳時 `_isUploading=true`，FrameLoader 會跳過 SD 讀取
 
 ### Code Style
 - 所有常數定義在 `include/config.h`

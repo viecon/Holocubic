@@ -204,7 +204,9 @@ static void handleGetOriginal(AsyncWebServerRequest *request)
         return;
     }
 
-    request->send(SD, path, "image/gif");
+    AsyncWebServerResponse *response = request->beginResponse(SD, path, "image/gif");
+    response->addHeader("Cache-Control", "public, max-age=86400");
+    request->send(response);
 }
 
 static void handleReorder(AsyncWebServerRequest *request, JsonVariant &json)

@@ -694,9 +694,24 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
                     }
                 }
                 if (!origUploaded) {
-                    // Frames uploaded fine but original failed ??not critical, just warn
+                    // Frames uploaded fine but original failed — not critical, just warn
                     console.warn('Could not upload original GIF file for preview');
                     await fetch('/api/abort-upload', { method: 'POST' }).catch(() => {});
+                } else {
+                    // Populate cache with the file we already have in memory
+                    try {
+                        const arrayBuffer = await file.arrayBuffer();
+                        const frames = await parseGif(new Uint8Array(arrayBuffer));
+                        if (frames.length > 0) {
+                            if (originalCache.has(gifName)) {
+                                URL.revokeObjectURL(originalCache.get(gifName).blobUrl);
+                            }
+                            const blobUrl = URL.createObjectURL(file);
+                            originalCache.set(gifName, { frames, blobUrl });
+                        }
+                    } catch (e) {
+                        console.warn('Failed to cache uploaded GIF:', e.message);
+                    }
                 }
                 
                 updateProgress('Done!', 100);
@@ -1129,7 +1144,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
                         </svg>
                     </div>
                     <div class="gif-preview">
-                        <img src="/api/gif/${gif.name}/original" onerror="this.src='/api/gif/${gif.name}/frame/0'" alt="${gif.name}">
+                        <img src="${originalCache.has(gif.name) ? originalCache.get(gif.name).blobUrl : `/api/gif/${gif.name}/original`}" onerror="this.src='/api/gif/${gif.name}/frame/0'" alt="${gif.name}">
                     </div>
                     <div class="gif-info">
                         <div class="gif-name">${gif.name}</div>
@@ -1225,6 +1240,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             try {
                 const res = await fetch(`/api/gif/${deleteTarget}`, { method: 'DELETE' });
                 if (res.ok) {
+                    // Revoke blob URL and clear cache entry to free memory
+                    if (originalCache.has(deleteTarget)) {
+                        URL.revokeObjectURL(originalCache.get(deleteTarget).blobUrl);
+                        originalCache.delete(deleteTarget);
+                    }
                     await loadGifs();
                     showToast('GIF deleted');
                 } else {
@@ -1240,6 +1260,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
         // Preview modal
         let previewFrames = [];
         let previewFrameIndex = 0;
+        const originalCache = new Map(); // gifName -> { frames, blobUrl }
         
         async function showPreview(name) {
             const gif = gifs.find(g => g.name === name);
@@ -1253,36 +1274,45 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
             
             // Try to load original GIF first
             try {
-                const res = await fetch(`/api/gif/${name}/original`);
-                if (res.ok) {
-                    const blob = await res.blob();
-                    const arrayBuffer = await blob.arrayBuffer();
-                    const frames = await parseGif(new Uint8Array(arrayBuffer));
-                    
-                    if (frames.length > 0) {
-                        canvas.width = frames[0].width;
-                        canvas.height = frames[0].height;
-                        
-                        previewFrames = frames.map(f => ({
-                            imageData: f.imageData,
-                            delay: f.delay || 100
-                        }));
-                        
-                        previewFrameIndex = 0;
-                        function animateOriginal() {
-                            if (!document.getElementById('previewModal').classList.contains('active')) {
-                                return;
-                            }
-                            
-                            const frame = previewFrames[previewFrameIndex];
-                            ctx.putImageData(frame.imageData, 0, 0);
-                            
-                            previewFrameIndex = (previewFrameIndex + 1) % previewFrames.length;
-                            previewInterval = setTimeout(animateOriginal, frame.delay);
+                let frames;
+                if (originalCache.has(name)) {
+                    frames = originalCache.get(name).frames;
+                } else {
+                    const res = await fetch(`/api/gif/${name}/original`);
+                    if (res.ok) {
+                        const blob = await res.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        const arrayBuffer = await blob.arrayBuffer();
+                        frames = await parseGif(new Uint8Array(arrayBuffer));
+                        if (frames.length > 0) {
+                            originalCache.set(name, { frames, blobUrl });
                         }
-                        animateOriginal();
-                        return;
                     }
+                }
+                
+                if (frames && frames.length > 0) {
+                    canvas.width = frames[0].width;
+                    canvas.height = frames[0].height;
+                    
+                    previewFrames = frames.map(f => ({
+                        imageData: f.imageData,
+                        delay: f.delay || 100
+                    }));
+                    
+                    previewFrameIndex = 0;
+                    function animateOriginal() {
+                        if (!document.getElementById('previewModal').classList.contains('active')) {
+                            return;
+                        }
+                        
+                        const frame = previewFrames[previewFrameIndex];
+                        ctx.putImageData(frame.imageData, 0, 0);
+                        
+                        previewFrameIndex = (previewFrameIndex + 1) % previewFrames.length;
+                        previewInterval = setTimeout(animateOriginal, frame.delay);
+                    }
+                    animateOriginal();
+                    return;
                 }
             } catch (e) {
                 console.log('Original GIF not available, falling back to frames');
