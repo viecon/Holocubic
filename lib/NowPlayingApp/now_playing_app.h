@@ -29,6 +29,7 @@ public:
 private:
     NowPlayingInfo _info;
     int _currentFrame;
+    int _nextFrame;
     unsigned long _lastFrameTime;
     bool _needRedraw;
     bool _frameRequested;

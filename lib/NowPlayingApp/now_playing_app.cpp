@@ -8,7 +8,7 @@ NowPlayingApp nowPlayingApp;
 static const uint16_t COLOR_GRAY = 0x7BEF;
 
 NowPlayingApp::NowPlayingApp()
-    : _currentFrame(0), _lastFrameTime(0), _needRedraw(true), _frameRequested(false)
+    : _currentFrame(0), _nextFrame(1), _lastFrameTime(0), _needRedraw(true), _frameRequested(false)
 {
     memset(&_info, 0, sizeof(_info));
     _nextFramePath[0] = '\0';
@@ -49,7 +49,7 @@ void NowPlayingApp::loop()
 
     if (!_frameRequested)
     {
-        snprintf(_nextFramePath, sizeof(_nextFramePath), "%s/%d.bmp", NP_DIR, _currentFrame);
+        snprintf(_nextFramePath, sizeof(_nextFramePath), "%s/%d.bmp", NP_DIR, _nextFrame);
         frameLoader.requestLoad(_nextFramePath);
         _frameRequested = true;
     }
@@ -59,8 +59,8 @@ void NowPlayingApp::loop()
         _lastFrameTime = now;
         frameLoader.consumeLoaded();
         display.swapAndRender();
-
-        _currentFrame = (_currentFrame + 1) % _info.frameCount;
+        _currentFrame = _nextFrame;
+        _nextFrame = (_nextFrame + 1) % _info.frameCount;
         _frameRequested = false;
     }
 }
