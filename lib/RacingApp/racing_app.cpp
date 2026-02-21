@@ -145,6 +145,7 @@ void RacingApp::loop()
     _lastUpdate = now;
 
     GFXcanvas16 *canvas = display.getBackCanvas();
+    if (!canvas) return;
 
     if (_state == RACING_GAMEOVER)
     {

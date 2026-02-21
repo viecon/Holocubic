@@ -28,8 +28,6 @@ static void uploadResponseHandler(AsyncWebServerRequest *request)
 
 static void handleGetGifs(AsyncWebServerRequest *request)
 {
-    gifManager.refresh();
-
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
 

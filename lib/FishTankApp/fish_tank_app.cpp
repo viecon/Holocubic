@@ -178,6 +178,7 @@ void FishTankApp::loop()
     updateBubbles(dt);
 
     GFXcanvas16 *canvas = display.getBackCanvas();
+    if (!canvas) return;
 
     // Draw water background gradient (dark blue at top, lighter below)
     for (int y = 0; y < 128; y += 8)

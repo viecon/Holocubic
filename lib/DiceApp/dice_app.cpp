@@ -120,6 +120,7 @@ void DiceApp::loop()
         updateRoll();
 
     GFXcanvas16 *canvas = display.getBackCanvas();
+    if (!canvas) return;
     canvas->fillScreen(0x0019); // Dark blue background
 
     drawDiceFace(canvas, _currentFace);

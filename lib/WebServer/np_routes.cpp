@@ -63,7 +63,8 @@ static void handleUploadNpFrame(AsyncWebServerRequest *request, const String &fi
                 File entry = dir.openNextFile();
                 while (entry)
                 {
-                    const char *fullPath = entry.name();
+                    char fullPath[64];
+                    strlcpy(fullPath, entry.name(), sizeof(fullPath));
                     entry.close();
                     SD.remove(fullPath);
                     entry = dir.openNextFile();

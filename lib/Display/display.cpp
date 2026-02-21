@@ -34,6 +34,7 @@ void Display::begin()
     if (!_canvas[0] || !_canvas[1])
     {
         Serial.println("[Display] Canvas allocation failed!");
+        while (1) delay(100);
     }
     _frontIdx = 0;
 }
